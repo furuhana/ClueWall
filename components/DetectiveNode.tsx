@@ -180,9 +180,11 @@ const DetectiveNode: React.FC<DetectiveNodeProps> = ({
                  </span>
               </div>
               <p className="font-mono text-xs text-gray-800 flex-1 whitespace-pre-wrap">{note.content}</p>
+              
+              {/* Updated Stamp Style */}
               <div className="mt-2 self-end flex-shrink-0">
-                 <div className="w-16 h-16 border-4 border-red-800 rounded-full flex items-center justify-center opacity-70 transform -rotate-12">
-                    <span className="text-red-800 font-bold text-[10px] uppercase">Classified</span>
+                 <div className="w-20 h-6 border-2 border-red-800 rounded-full flex items-center justify-center opacity-70 transform -rotate-12">
+                    <span className="text-red-800 font-bold font-handwriting text-[11px] uppercase">Classified</span>
                  </div>
               </div>
             </div>

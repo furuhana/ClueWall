@@ -70,6 +70,15 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({
     };
   };
 
+  const pinStyle: React.CSSProperties = {
+    width: '20px',
+    height: '20px',
+    borderRadius: '50%',
+    background: 'radial-gradient(66.67% 66.67% at 50% 33.33%, rgb(194, 194, 194) 34.29%, rgb(164, 164, 164) 100%)',
+    boxShadow: 'rgb(255, 255, 255) 0px 0.5px 0px 0px inset, rgb(255, 255, 255) 0px 1px 1px 0px inset, rgba(0, 0, 0, 0.3) 0px -0.5px 1px 0.5px inset, rgba(0, 0, 0, 0.4) 0px -0.5px 0.5px 0px inset, rgba(255, 255, 255, 0.5) 0px 0px 4.2px 0px inset',
+    filter: 'drop-shadow(rgba(40, 0, 0, 0.4) 0px 6px 4px) drop-shadow(rgba(0, 0, 0, 0.5) 0px 8px 12.7px)'
+  };
+
   return (
     <>
       {/* SVG Layer: High Z-Index to ensure lines appear above nodes */}
@@ -78,20 +87,6 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({
         className="absolute top-0 left-0 pointer-events-none z-[9999]"
         style={{ width: '1px', height: '1px', overflow: 'visible' }}
       >
-        <defs>
-          <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="1" dy="2" stdDeviation="1" floodColor="#000" floodOpacity="0.3" />
-          </filter>
-          <filter id="pin-shadow" x="-50%" y="-50%" width="200%" height="200%">
-             <feDropShadow dx="0" dy="2" stdDeviation="1.5" floodColor="#000" floodOpacity="0.6" />
-          </filter>
-          <radialGradient id="metal-pin-gradient" cx="30%" cy="30%" r="70%" fx="30%" fy="30%">
-              <stop offset="0%" stopColor="#ffffff" />
-              <stop offset="40%" stopColor="#9ca3af" /> 
-              <stop offset="100%" stopColor="#4b5563" /> 
-          </radialGradient>
-        </defs>
-
         {/* Lines */}
         <g>
           {connections.map((conn) => {
@@ -115,18 +110,20 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({
                   strokeWidth="20" 
                   strokeLinecap="round"
                 />
-                {/* Visible string */}
+                {/* Visible string - New Red Style */}
                 <line
                   x1={start.x}
                   y1={start.y}
                   x2={end.x}
                   y2={end.y}
-                  stroke={conn.color}
-                  strokeWidth="2"
+                  stroke="#D43939"
+                  strokeWidth="4"
                   strokeLinecap="round"
-                  filter="url(#shadow)"
                   className="transition-colors duration-200"
-                  style={{ stroke: hoveredConnId === conn.id ? '#ff6666' : conn.color }}
+                  style={{ 
+                    stroke: hoveredConnId === conn.id ? '#ff6666' : '#D43939',
+                    filter: 'drop-shadow(0 4px 16.6px rgba(191, 0, 0, 0.40)) drop-shadow(0 6px 6.3px rgba(147, 0, 0, 0.30))'
+                  }}
                 />
               </g>
             );
@@ -140,71 +137,62 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({
               x2={mousePos.x}
               y2={mousePos.y}
               stroke="#d93025"
-              strokeWidth="2"
+              strokeWidth="4"
               strokeDasharray="5,5"
               opacity="0.8"
             />
           )}
         </g>
-
-        {/* Pins Visuals */}
-        <g>
-          {notes.map(note => {
-             if (!note.hasPin) return null;
-             const pos = getPinLocation(note.id);
-             
-             return (
-               <g key={`pin-${note.id}`} style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}>
-                  <circle 
-                      r="8" 
-                      fill="url(#metal-pin-gradient)" 
-                      filter="url(#pin-shadow)" 
-                      stroke="#4b5563"
-                      strokeWidth="0.5"
-                  />
-                  {/* Highlight on pin head */}
-                  <circle cx="-2" cy="-2" r="2" fill="white" opacity="0.9" filter="blur(0.5px)" />
-               </g>
-             )
-          })}
-        </g>
       </svg>
 
-      {/* HTML Overlay: Buttons */}
+      {/* HTML Overlay: Pins and Buttons */}
       <div 
         className="absolute top-0 left-0 pointer-events-none z-[10000]"
         style={{ width: '1px', height: '1px', overflow: 'visible' }}
       >
-        {/* Invisible Click Targets for Pins */}
+        {/* Pins (Now rendered as HTML for complex styles) and Click Targets */}
         {notes.map(note => {
             if (!note.hasPin) return null;
             const pos = getPinLocation(note.id);
             return (
-                <button
-                    key={`pin-btn-${note.id}`}
-                    className="absolute w-8 h-8 rounded-full pointer-events-auto cursor-pointer"
-                    style={{
-                        left: pos.x,
-                        top: pos.y,
-                        transform: 'translate(-50%, -50%)',
-                        backgroundColor: 'transparent', // Fully transparent but clickable
-                    }}
-                    title={isPinMode ? "Remove Pin" : "Connect Evidence"}
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onPinClick(e, note.id);
-                    }}
-                    onMouseDown={(e) => {
-                         // Allow middle mouse to bubble for panning
-                         if (e.button === 1) return;
-                         
-                         e.stopPropagation();
-                         // Important: prevents starting a drag on the note when clicking the pin
-                         if (isPinMode) {
-                            onPinClick(e, note.id); 
-                         }
-                    }}
-                />
+                <div key={`pin-container-${note.id}`}>
+                    {/* Visual Pin Div */}
+                    <div 
+                        style={{
+                            ...pinStyle,
+                            position: 'absolute',
+                            left: pos.x,
+                            top: pos.y,
+                            transform: 'translate(-50%, -50%)',
+                            pointerEvents: 'none' // Clicks go through to button below
+                        }}
+                    />
+                    
+                    {/* Interactive Button (Transparent) */}
+                    <button
+                        className="absolute w-8 h-8 rounded-full pointer-events-auto cursor-pointer"
+                        style={{
+                            left: pos.x,
+                            top: pos.y,
+                            transform: 'translate(-50%, -50%)',
+                            backgroundColor: 'transparent',
+                        }}
+                        title={isPinMode ? "Remove Pin" : "Connect Evidence"}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onPinClick(e, note.id);
+                        }}
+                        onMouseDown={(e) => {
+                             // Allow middle mouse to bubble for panning
+                             if (e.button === 1) return;
+                             
+                             e.stopPropagation();
+                             if (isPinMode) {
+                                onPinClick(e, note.id); 
+                             }
+                        }}
+                    />
+                </div>
             );
         })}
 
@@ -233,8 +221,6 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({
                   onDeleteConnection(conn.id);
                 }}
                 onMouseDown={(e) => {
-                  // Stop propagation for left click (so we don't pan while clicking delete)
-                  // But allow middle mouse (button 1) to bubble for global pan
                   if (e.button !== 1) e.stopPropagation();
                 }}
               >
