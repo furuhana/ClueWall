@@ -21,9 +21,6 @@ export const getNoteDimensions = (note: Note) => {
     case 'dossier':
       height = 224; // Fix: 200 min-height + 24 padding
       break;
-    case 'sketch':
-      height = 220;
-      break;
     case 'scrap':
       height = 80; // Matches CSS min-h-[80px]
       break;

@@ -122,6 +122,22 @@ const App: React.FC = () => {
   }, [connectingNodeId, editingNodeId, selectedNodeId]);
 
   // --- Music Handler ---
+  useEffect(() => {
+    // Attempt auto-play on mount
+    if (audioRef.current) {
+        audioRef.current.volume = 0.5;
+        const playPromise = audioRef.current.play();
+        if (playPromise !== undefined) {
+            playPromise
+                .then(() => setIsMusicPlaying(true))
+                .catch((e) => {
+                    console.warn("Autoplay prevented by browser:", e);
+                    setIsMusicPlaying(false);
+                });
+        }
+    }
+  }, []);
+
   const toggleMusic = () => {
     if (!audioRef.current) return;
     
@@ -129,8 +145,7 @@ const App: React.FC = () => {
       audioRef.current.pause();
       setIsMusicPlaying(false);
     } else {
-      // Set volume to a background level
-      audioRef.current.volume = 0.2;
+      audioRef.current.volume = 0.5;
       audioRef.current.play().then(() => {
         setIsMusicPlaying(true);
       }).catch(e => {
@@ -303,8 +318,9 @@ const App: React.FC = () => {
         const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad);
         const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
 
-        // --- CASE A: Images or Corner Handle on Text -> Proportional Scale ---
-        if (!isTextType || mode === 'CORNER') {
+        // --- CASE A: Corner Resizing (Proportional) ---
+        // Only apply proportional scale logic if strictly using the Corner Handle.
+        if (mode === 'CORNER') {
             const aspectRatio = transformStart.initialWidth / transformStart.initialHeight;
             
             // For Corner Scale: Drag Left (-x) grows. Drag Down (+y) grows.
@@ -356,36 +372,65 @@ const App: React.FC = () => {
             }));
         } 
         
-        // --- CASE B: Independent Edge Resizing ---
-        else if (isTextType) {
+        // --- CASE B: Independent Edge Resizing (Sides) ---
+        // Applies to ALL types (Text & Images). Images will stretch/crop visually.
+        else {
              let newWidth = transformStart.initialWidth;
              let newHeight = transformStart.initialHeight;
              let newX = transformStart.initialX;
              let newY = transformStart.initialY;
 
+             const MIN_W = isTextType ? 100 : 50;
+             
+             // Dynamic Height Limit based on Type
+             let MIN_H = 50;
+             if (note.type === 'dossier') {
+                 MIN_H = 220;
+             } else if (note.type === 'note') {
+                 MIN_H = 160;
+             } else if (note.type === 'scrap') {
+                 MIN_H = 80;
+             }
+
              if (mode === 'LEFT') {
                 // Drag Left: x decreases, width increases. Right side pinned.
-                // localDx is negative when dragging left.
-                newWidth = Math.max(100, transformStart.initialWidth - localDx);
-                // Shift X by the amount width increased
+                // Logic includes Pushing: If width clamps, X keeps moving, effectively moving the whole object.
+                const rawWidth = transformStart.initialWidth - localDx;
+                newWidth = Math.max(MIN_W, rawWidth);
                 newX = transformStart.initialX + localDx;
 
              } else if (mode === 'RIGHT') {
-                // Drag Right: width increases. Left side pinned (x constant).
-                newWidth = Math.max(100, transformStart.initialWidth + localDx);
-                newX = transformStart.initialX;
+                // Drag Right: width increases. Left side pinned.
+                // Added Pushing logic: If width clamps at minimum, X shifts to simulate right edge stopping but mouse pushing left edge.
+                const rawWidth = transformStart.initialWidth + localDx;
+                newWidth = Math.max(MIN_W, rawWidth);
+                
+                if (rawWidth < MIN_W) {
+                   // Push the object from the right
+                   newX = (transformStart.initialX + transformStart.initialWidth + localDx) - MIN_W;
+                } else {
+                   newX = transformStart.initialX;
+                }
 
              } else if (mode === 'TOP') {
-                // Drag Top: y decreases, height increases. Bottom side pinned.
-                // localDy is negative when dragging up.
-                newHeight = Math.max(50, transformStart.initialHeight - localDy);
-                // Shift Y by the amount height increased
+                // Drag Top: height increases. Bottom side pinned.
+                // Logic includes Pushing: If height clamps, Y keeps moving.
+                const rawHeight = transformStart.initialHeight - localDy;
+                newHeight = Math.max(MIN_H, rawHeight);
                 newY = transformStart.initialY + localDy;
 
              } else if (mode === 'BOTTOM') {
-                // Drag Bottom: height increases. Top side pinned (y constant).
-                newHeight = Math.max(50, transformStart.initialHeight + localDy);
-                newY = transformStart.initialY;
+                // Drag Bottom: height increases. Top side pinned.
+                // Added Pushing logic.
+                const rawHeight = transformStart.initialHeight + localDy;
+                newHeight = Math.max(MIN_H, rawHeight);
+
+                if (rawHeight < MIN_H) {
+                   // Push the object from the bottom
+                   newY = (transformStart.initialY + transformStart.initialHeight + localDy) - MIN_H;
+                } else {
+                   newY = transformStart.initialY;
+                }
              }
 
              setNotes(prev => prev.map(n => n.id === resizingId ? { 
@@ -517,7 +562,7 @@ const App: React.FC = () => {
     e.preventDefault();
     setIsDraggingFile(false);
     dragCounter.current = 0;
-    const files = Array.from(e.dataTransfer.files);
+    const files = Array.from(e.dataTransfer.files) as File[];
     const imageFiles = files.filter(file => file.type.startsWith('image/'));
     if (imageFiles.length === 0) return;
 

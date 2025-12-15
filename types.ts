@@ -1,4 +1,4 @@
-export type NoteType = 'note' | 'photo' | 'scrap' | 'dossier' | 'sketch' | 'evidence';
+export type NoteType = 'note' | 'photo' | 'scrap' | 'dossier' | 'evidence';
 
 export interface Note {
   id: string;

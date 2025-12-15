@@ -45,7 +45,7 @@ const EditModal: React.FC<EditModalProps> = ({ note, onSave, onClose }) => {
     });
   };
 
-  const isPhotoType = note.type === 'photo' || note.type === 'sketch' || note.type === 'evidence';
+  const isPhotoType = note.type === 'photo' || note.type === 'evidence';
   const isDossier = note.type === 'dossier';
 
   return (

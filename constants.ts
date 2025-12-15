@@ -54,20 +54,6 @@ export const INITIAL_NOTES: Note[] = [
     height: 80, // Matches CSS min-h-[80px]
     scale: 1
   },
-  {
-    id: 'n5',
-    type: 'sketch',
-    content: 'Weapon sketch',
-    fileId: 'https://picsum.photos/200/150?grayscale',
-    x: 150,
-    y: 450,
-    zIndex: 5,
-    rotation: 8,
-    hasPin: false,
-    width: 256,
-    height: 220,
-    scale: 1
-  },
 ];
 
 export const INITIAL_CONNECTIONS: Connection[] = [];

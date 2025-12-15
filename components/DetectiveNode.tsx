@@ -18,6 +18,38 @@ interface DetectiveNodeProps {
   onResizeStart: (e: React.MouseEvent, mode: 'CORNER' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') => void;
 }
 
+const noteStyle: React.CSSProperties = {
+  borderRadius: '12px',
+  // Layer 1: Horizontal lines (grayish blue for notebook feel)
+  // Layer 2: The Yellow Gradient requested
+  backgroundImage: `
+    linear-gradient(transparent 27px, rgba(94, 110, 128, 0.2) 28px),
+    linear-gradient(180deg, #FFF293 0%, #DFC765 100%)
+  `,
+  backgroundSize: '100% 28px, 100% 100%',
+  backgroundAttachment: 'local', // Ensures lines scroll with content
+  lineHeight: '28px', // Matches the background size height
+  boxShadow: '0 2px 0 0 rgba(0, 0, 0, 0.25), 0 57px 43.8px -38px rgba(0, 0, 0, 0.25), 0 2px 0 0 #FFF5A6 inset, 0 2px 4px 0 rgba(181, 118, 0, 0.30) inset, 0 -2px 2px 0 rgba(91, 50, 21, 0.40) inset, 0 -5px 47.2px 0 rgba(205, 168, 48, 0.10) inset'
+};
+
+const photoStyle: React.CSSProperties = {
+  borderRadius: '12px',
+  background: 'linear-gradient(180deg, #F5F5F5 0%, #DBDBDB 100%)',
+  boxShadow: '0 2px 0 0 rgba(0, 0, 0, 0.25), 0 57px 43.8px -38px rgba(0, 0, 0, 0.25), 0 2px 0 0 #FFF inset, 0 2px 4px 0 rgba(162, 162, 162, 0.30) inset, 0 -2px 2px 0 rgba(0, 0, 0, 0.40) inset, 0 -5px 47.2px 0 rgba(0, 0, 0, 0.10) inset'
+};
+
+const dossierTabStyle: React.CSSProperties = {
+  borderRadius: '12px 12px 0 0',
+  background: 'linear-gradient(180deg, #DBB895 17.29%, #BD937C 86.6%)',
+  boxShadow: '0 2px 0 0 rgba(0, 0, 0, 0.25), 0 57px 43.8px -38px rgba(0, 0, 0, 0.25), 0 1px 2px 0 #FFE6D0 inset, 0 2px 4px 0 rgba(192, 140, 102, 0.30) inset, 0 -2px 2px 0 rgba(76, 36, 19, 0.40) inset, 0 -5px 47.2px 0 rgba(167, 92, 45, 0.10) inset'
+};
+
+const dossierStyle: React.CSSProperties = {
+  borderRadius: '12px',
+  background: 'linear-gradient(180deg, #E6CCB2 0%, #DBB895 100%)',
+  boxShadow: '0 2px 0 0 rgba(0, 0, 0, 0.25), 0 57px 43.8px -38px rgba(0, 0, 0, 0.25), 0 2px 2px 0 #FFE6D0 inset, 0 2px 4px 0 rgba(192, 140, 102, 0.30) inset, 0 -2px 2px 0 rgba(76, 36, 19, 0.40) inset, 0 -5px 47.2px 0 rgba(167, 92, 45, 0.10) inset'
+};
+
 const DetectiveNode: React.FC<DetectiveNodeProps> = ({
   note,
   onMouseDown,
@@ -87,8 +119,8 @@ const DetectiveNode: React.FC<DetectiveNodeProps> = ({
     switch (note.type) {
       case 'photo':
         return (
-          <div className="bg-white p-3 shadow-paper pb-8 border border-gray-200 transition-colors hover:border-gray-300 h-full flex flex-col">
-            <div className="bg-black/10 w-full flex-1 mb-2 overflow-hidden flex items-center justify-center bg-gray-900 min-h-0">
+          <div style={photoStyle} className="p-3 h-full flex flex-col">
+            <div className="bg-black/10 w-full flex-1 mb-2 overflow-hidden flex items-center justify-center bg-gray-900 min-h-0 rounded">
               {note.fileId ? (
                 <img src={note.fileId} alt="evidence" className="object-cover w-full h-full pointer-events-none" />
               ) : (
@@ -117,20 +149,30 @@ const DetectiveNode: React.FC<DetectiveNodeProps> = ({
 
       case 'note':
         return (
-          <div className="bg-yellow-200 p-4 shadow-paper min-h-[160px] lined-paper transition-colors hover:bg-yellow-100 h-full">
-            <p className="font-handwriting text-blue-900 text-lg whitespace-pre-wrap">{note.content}</p>
+          <div style={noteStyle} className="px-4 py-2 min-h-[160px] h-full">
+            {/* Added extra top padding to align first line with the grid lines */}
+            <p className="font-handwriting text-blue-900 text-lg whitespace-pre-wrap pt-1">{note.content}</p>
           </div>
         );
 
       case 'dossier':
         return (
           <div className="relative pt-6 h-full flex flex-col">
-            <div className="absolute top-0 left-0 w-2/3 h-8 bg-[#d2b48c] rounded-t-lg border-t border-l border-r border-[#b09470]">
-               <span className="text-[10px] font-bold text-[#8b4513] px-2 uppercase tracking-wider">
+            {/* Tab: Z-Index 1 (Behind main body) */}
+            <div 
+               style={{ ...dossierTabStyle, zIndex: 1 }}
+               className="absolute top-0 left-0 w-2/3 h-8 flex items-center"
+            >
+               <span className="text-[10px] font-bold text-[#5c3a1e] px-4 uppercase tracking-wider mt-1">
                  {note.title || "Top Secret"}
                </span>
             </div>
-            <div className="bg-[#e6ccb2] p-4 shadow-paper min-h-[200px] border border-[#d2b48c] rounded-b-lg rounded-tr-lg flex flex-col transition-colors hover:bg-[#ebd2b9] h-full flex-1">
+            
+            {/* Main Body: Z-Index 2 (Front) */}
+            <div 
+               style={{ ...dossierStyle, position: 'relative', zIndex: 2 }} 
+               className="p-4 min-h-[200px] flex flex-col h-full flex-1"
+            >
               <div className="border-b-2 border-[#d2b48c] mb-2 pb-1 flex items-center gap-2 flex-shrink-0">
                  <FileText size={16} className="text-[#8b4513]"/>
                  <span className="font-bold text-[#8b4513] uppercase text-sm">
@@ -159,17 +201,6 @@ const DetectiveNode: React.FC<DetectiveNodeProps> = ({
           >
             <p className="font-mono text-sm text-gray-600 italic whitespace-pre-wrap">"{note.content}"</p>
           </div>
-        );
-
-      case 'sketch':
-        return (
-           <div className="bg-white p-2 shadow-paper border-2 border-dashed border-gray-300 transition-colors hover:border-gray-400 h-full flex flex-col">
-             <div className="w-full flex-1 min-h-0 bg-gray-50 border border-gray-100 flex items-center justify-center overflow-hidden relative">
-                 {note.fileId && <img src={note.fileId} className="w-full h-full object-cover opacity-80 contrast-125" alt="sketch" />}
-                 <div className="absolute inset-0 bg-yellow-100/10 mix-blend-multiply"></div>
-             </div>
-             <p className="font-handwriting text-gray-500 mt-2 text-center text-xs break-words flex-shrink-0">{note.content}</p>
-           </div>
         );
         
       default:
