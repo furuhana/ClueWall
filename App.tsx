@@ -5,7 +5,7 @@ import { getNoteDimensions } from './utils';
 import DetectiveNode from './components/DetectiveNode';
 import ConnectionLayer from './components/ConnectionLayer';
 import EditModal from './components/EditModal';
-import { Trash2, MapPin, UploadCloud, Plus, Minus } from 'lucide-react';
+import { Trash2, MapPin, UploadCloud, Plus, Minus, Volume2, VolumeX } from 'lucide-react';
 
 const CORK_URL = "data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h40v40H0V0zm20 20h20v20H20V20zM0 20h20v20H0V20zM20 0h20v20H20V0z' fill='%235c3a1e' fill-opacity='0.1' fill-rule='evenodd'/%3E%3C/svg%3E";
 
@@ -58,6 +58,10 @@ const App: React.FC = () => {
   // State for File Dragging
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const dragCounter = useRef(0);
+
+  // State for Music
+  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   // Refs
   const boardRef = useRef<HTMLDivElement>(null);
@@ -116,6 +120,24 @@ const App: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [connectingNodeId, editingNodeId, selectedNodeId]);
+
+  // --- Music Handler ---
+  const toggleMusic = () => {
+    if (!audioRef.current) return;
+    
+    if (isMusicPlaying) {
+      audioRef.current.pause();
+      setIsMusicPlaying(false);
+    } else {
+      // Set volume to a background level
+      audioRef.current.volume = 0.2;
+      audioRef.current.play().then(() => {
+        setIsMusicPlaying(true);
+      }).catch(e => {
+        console.error("Audio playback failed (interaction required):", e);
+      });
+    }
+  };
 
   // --- Handlers ---
 
@@ -577,6 +599,9 @@ const App: React.FC = () => {
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
     >
+      {/* Background Music Audio Element */}
+      <audio ref={audioRef} src="/home_bgm.mp3" loop />
+
       {/* UI Controls: Left (Tools) */}
       <div className="absolute top-4 left-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto">
          <div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-float border border-white/10 max-w-sm">
@@ -611,12 +636,16 @@ const App: React.FC = () => {
          </div>
       </div>
 
+      {/* UI Controls: Right (Zoom & Music) */}
       <div className="absolute top-4 right-4 z-[9999] bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-float pointer-events-auto cursor-auto">
           <button onClick={handleZoomIn} className="p-2 hover:bg-white/10 rounded-t-lg transition-colors"><Plus size={20} /></button>
           <div className="text-xs font-mono py-1 w-12 text-center border-y border-white/10 select-none">
               {Math.round(view.zoom * 100)}%
           </div>
-          <button onClick={handleZoomOut} className="p-2 hover:bg-white/10 rounded-b-lg transition-colors"><Minus size={20} /></button>
+          <button onClick={handleZoomOut} className="p-2 hover:bg-white/10 border-b border-white/10 transition-colors"><Minus size={20} /></button>
+          <button onClick={toggleMusic} className="p-2 hover:bg-white/10 rounded-b-lg transition-colors" title={isMusicPlaying ? "Mute Music" : "Play Music"}>
+            {isMusicPlaying ? <Volume2 size={20} /> : <VolumeX size={20} />}
+          </button>
       </div>
 
       {connectingNodeId && (
