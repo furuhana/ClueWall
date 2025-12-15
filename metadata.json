@@ -1,0 +1,5 @@
+{
+  "name": "Detective Wall",
+  "description": "An interactive detective intelligence wall for organizing clues, photos, and connections.",
+  "requestFramePermissions": []
+}
