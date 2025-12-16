@@ -86,6 +86,7 @@ const App: React.FC = () => {
   const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
   const [isPanning, setIsPanning] = useState(false);
   const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
   // State for dragging nodes
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -298,13 +299,54 @@ const App: React.FC = () => {
 
   // --- Handlers ---
 
+  const cancelAnimation = useCallback(() => {
+    if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+    }
+  }, []);
+
   const handleResetView = () => {
-      setView({ x: 0, y: 0, zoom: 1 });
+      const start = { ...view };
+      const end = { x: 0, y: 0, zoom: 1 };
+      
+      // If already there, do nothing
+      if (start.x === 0 && start.y === 0 && start.zoom === 1) return;
+
+      const startTime = performance.now();
+      const duration = 1000; // 1 second for silky smooth
+
+      // Easing: easeOutQuart
+      const easeOutQuart = (x: number): number => 1 - Math.pow(1 - x, 4);
+
+      const animate = (time: number) => {
+          const elapsed = time - startTime;
+          const progress = Math.min(elapsed / duration, 1);
+          const ease = easeOutQuart(progress);
+
+          const newX = start.x + (end.x - start.x) * ease;
+          const newY = start.y + (end.y - start.y) * ease;
+          const newZoom = start.zoom + (end.zoom - start.zoom) * ease;
+
+          setView({ x: newX, y: newY, zoom: newZoom });
+
+          if (progress < 1) {
+              animationFrameRef.current = requestAnimationFrame(animate);
+          } else {
+              animationFrameRef.current = null;
+          }
+      };
+
+      cancelAnimation();
+      animationFrameRef.current = requestAnimationFrame(animate);
   };
 
   const handleWheel = (e: React.WheelEvent) => {
     if (editingNodeId) return;
     
+    // User interaction cancels any auto-animation
+    cancelAnimation();
+
     const MIN_ZOOM = 0.1;
     const MAX_ZOOM = 3.0;
     const ZOOM_SENSITIVITY = 0.001;
@@ -324,6 +366,9 @@ const App: React.FC = () => {
   };
 
   const handleBackgroundMouseDown = (e: React.MouseEvent) => {
+    // User interaction cancels any auto-animation
+    cancelAnimation();
+
     if (e.button === 0 || e.button === 1) {
         if (e.button === 1) e.preventDefault();
         setIsPanning(true);
