@@ -12,6 +12,7 @@ interface ConnectionLayerProps {
   onPinClick: (e: React.MouseEvent, id: string) => void; 
   isPinMode: boolean; 
   onConnectionColorChange?: (id: string, color: string) => void;
+  onPinMouseDown: (e: React.MouseEvent, id: string) => void;
 }
 
 // Color Constants
@@ -44,7 +45,8 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({
   onDeleteConnection,
   onPinClick,
   isPinMode,
-  onConnectionColorChange
+  onConnectionColorChange,
+  onPinMouseDown
 }) => {
   const [hoveredConnId, setHoveredConnId] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<number | null>(null);
@@ -209,20 +211,16 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({
                             top: pos.y,
                             transform: 'translate(-50%, -50%)',
                             backgroundColor: 'transparent',
+                            cursor: 'move'
                         }}
-                        title={isPinMode ? "Remove Pin" : "Connect Evidence"}
+                        title={isPinMode ? "Connect Evidence (Switch Mode)" : "Connect Evidence / Drag to Move"}
                         onClick={(e) => {
                             e.stopPropagation();
                             onPinClick(e, note.id);
                         }}
                         onMouseDown={(e) => {
-                             // Allow middle mouse to bubble for panning
                              if (e.button === 1) return;
-                             
-                             e.stopPropagation();
-                             if (isPinMode) {
-                                onPinClick(e, note.id); 
-                             }
+                             onPinMouseDown(e, note.id);
                         }}
                     />
                 </div>

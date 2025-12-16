@@ -24,6 +24,17 @@ interface TransformStartData {
     resizeMode?: ResizeMode;
 }
 
+interface PinDragData {
+    noteId: string;
+    startX: number;
+    startY: number;
+    initialPinX: number;
+    initialPinY: number;
+    rotation: number;
+    width: number;
+    height: number;
+}
+
 const App: React.FC = () => {
   // Initialize Notes Centered on Screen
   const [notes, setNotes] = useState<Note[]>(() => {
@@ -88,6 +99,10 @@ const App: React.FC = () => {
   const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [resizingId, setResizingId] = useState<string | null>(null);
   const [transformStart, setTransformStart] = useState<TransformStartData | null>(null);
+
+  // State for Pin Dragging
+  const [pinDragData, setPinDragData] = useState<PinDragData | null>(null);
+  const isPinDragRef = useRef(false);
 
   // State for connecting
   const [connectingNodeId, setConnectingNodeId] = useState<string | null>(null);
@@ -348,6 +363,27 @@ const App: React.FC = () => {
       });
   };
 
+  const handlePinMouseDown = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const note = notes.find(n => n.id === id);
+    if (!note) return;
+
+    const { width, height } = getNoteDimensions(note);
+    
+    isPinDragRef.current = false;
+    setPinDragData({
+        noteId: id,
+        startX: e.clientX,
+        startY: e.clientY,
+        initialPinX: note.pinX ?? width / 2,
+        initialPinY: note.pinY ?? 10,
+        rotation: note.rotation,
+        width,
+        height
+    });
+  };
+
   const handleNodeMouseDown = (e: React.MouseEvent, id: string) => {
     if (e.button === 1) return;
     e.stopPropagation();
@@ -431,6 +467,43 @@ const App: React.FC = () => {
 
   // --- MAIN MOUSE MOVE ---
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    // 0. Pin Dragging
+    if (pinDragData) {
+        isPinDragRef.current = true;
+        
+        // Calculate Delta on Screen
+        const screenDx = e.clientX - pinDragData.startX;
+        const screenDy = e.clientY - pinDragData.startY;
+        
+        // Convert to World Delta
+        const worldDx = screenDx / view.zoom;
+        const worldDy = screenDy / view.zoom;
+        
+        // Rotate Delta into Note Space
+        // Note: note.rotation is clockwise degrees. Math functions expect counter-clockwise radians usually, 
+        // but css rotation matches visual. 
+        // If we have vector (dx,dy) in world, and note is rotated R deg, we want local vector.
+        // We rotate (dx, dy) by -R.
+        const rad = -(pinDragData.rotation * Math.PI) / 180;
+        const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad);
+        const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
+        
+        let newPinX = pinDragData.initialPinX + localDx;
+        let newPinY = pinDragData.initialPinY + localDy;
+        
+        // Clamp to Note Boundaries
+        // Ensure the pin center stays within the note's dimensions
+        newPinX = Math.max(0, Math.min(newPinX, pinDragData.width));
+        newPinY = Math.max(0, Math.min(newPinY, pinDragData.height));
+
+        setNotes(prev => prev.map(n => n.id === pinDragData.noteId ? {
+            ...n,
+            pinX: newPinX,
+            pinY: newPinY
+        } : n));
+        return;
+    }
+
     // 1. Panning
     if (isPanning && lastMousePosRef.current) {
         const dx = e.clientX - lastMousePosRef.current.x;
@@ -614,7 +687,7 @@ const App: React.FC = () => {
         })
       );
     }
-  }, [isPanning, draggingId, dragOffset, connectingNodeId, view, toWorld, rotatingId, resizingId, transformStart]);
+  }, [isPanning, draggingId, dragOffset, connectingNodeId, view, toWorld, rotatingId, resizingId, transformStart, pinDragData]);
 
   const handleMouseUp = () => {
     setIsPanning(false);
@@ -622,6 +695,7 @@ const App: React.FC = () => {
     setRotatingId(null);
     setResizingId(null);
     setTransformStart(null);
+    setPinDragData(null);
     lastMousePosRef.current = null;
   };
 
@@ -652,11 +726,20 @@ const App: React.FC = () => {
   };
   const handlePinClick = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
+
+    // Prevent click if we were dragging
+    if (isPinDragRef.current) {
+        isPinDragRef.current = false;
+        return;
+    }
+
+    // Logic: If in Pin Mode, clicking an existing pin switches to Connect Mode for that pin
     if (isPinMode) {
-      setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, hasPin: false } : n)));
-      setConnections(prev => prev.filter(c => c.sourceId !== id && c.targetId !== id));
+      setIsPinMode(false); // Exit Pin Mode
+      setConnectingNodeId(id); // Start Connecting from this pin
       return; 
     }
+
     if (connectingNodeId === null) {
       setConnectingNodeId(id);
     } else {
@@ -805,7 +888,7 @@ const App: React.FC = () => {
     const globalUp = () => handleMouseUp();
     window.addEventListener('mouseup', globalUp);
     return () => window.removeEventListener('mouseup', globalUp);
-  }, [isPanning, draggingId, rotatingId, resizingId]);
+  }, [isPanning, draggingId, rotatingId, resizingId, pinDragData]);
 
   return (
     <div 
@@ -929,6 +1012,7 @@ const App: React.FC = () => {
             onPinClick={handlePinClick} 
             isPinMode={isPinMode}
             onConnectionColorChange={handleUpdateConnectionColor}
+            onPinMouseDown={handlePinMouseDown}
           />
       </div>
 
