@@ -136,29 +136,65 @@ const App: React.FC = () => {
   useEffect(() => { if (audioRef.current) { audioRef.current.volume = 0.5; audioRef.current.play().then(() => setIsMusicPlaying(true)).catch(() => setIsMusicPlaying(false)); } }, []);
   const toggleMusic = () => { if (!audioRef.current) return; if (isMusicPlaying) { audioRef.current.pause(); setIsMusicPlaying(false); } else { audioRef.current.play().then(() => setIsMusicPlaying(true)); } };
 
+  // Handlers
   const cancelAnimation = useCallback(() => { if (animationFrameRef.current) { cancelAnimationFrame(animationFrameRef.current); animationFrameRef.current = null; } }, []);
   const handleResetView = () => { setView({x:0, y:0, zoom:1}); }; 
   const handleWheel = (e: React.WheelEvent) => { if (editingNodeId) return; cancelAnimation(); const delta = -e.deltaY * 0.001; const newZoom = Math.min(Math.max(0.1, view.zoom + delta), 3.0); const worldMouse = toWorld(e.clientX, e.clientY); setView({ x: e.clientX - worldMouse.x * newZoom, y: e.clientY - worldMouse.y * newZoom, zoom: newZoom }); };
+  const handleBackgroundMouseDown = (e: React.MouseEvent) => { cancelAnimation(); if (e.button === 0 || e.button === 1) { if (e.button === 1) e.preventDefault(); setIsPanning(true); lastMousePosRef.current = { x: e.clientX, y: e.clientY }; } };
+  const handleBackgroundClick = (e: React.MouseEvent) => { if (!isPanning && (e.target === boardRef.current)) { setConnectingNodeId(null); setSelectedNodeId(null); setIsPinMode(false); } };
   const handleZoomIn = () => setView(v => ({...v, zoom: Math.min(v.zoom + 0.2, 3)}));
   const handleZoomOut = () => setView(v => ({...v, zoom: Math.max(v.zoom - 0.2, 0.1)}));
-
-  // 🟢 这里补回了 handleBackgroundMouseDown 和 handleBackgroundClick
-  const handleBackgroundMouseDown = (e: React.MouseEvent) => {
-    cancelAnimation(); if (e.button === 0 || e.button === 1) { if (e.button === 1) e.preventDefault(); setIsPanning(true); lastMousePosRef.current = { x: e.clientX, y: e.clientY }; }
-  };
-  const handleBackgroundClick = (e: React.MouseEvent) => {
-    if (!isPanning && (e.target === boardRef.current)) { setConnectingNodeId(null); setSelectedNodeId(null); setIsPinMode(false); }
-  };
 
   const handleRotateStart = (e: React.MouseEvent, id: string) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if(!note) return; setRotatingId(id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth:0, initialHeight:0, initialX:0, initialY:0, initialScale:1 }); };
   const handleResizeStart = (e: React.MouseEvent, id: string, mode: ResizeMode) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if(!note) return; const dims = getNoteDimensions(note); setResizingId(id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth: dims.width, initialHeight: dims.height, initialX: note.x, initialY: note.y, initialScale: note.scale || 1, resizeMode: mode }); };
   const handlePinMouseDown = (e: React.MouseEvent, id: string) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if (!note) return; const { width, height } = getNoteDimensions(note); isPinDragRef.current = false; setPinDragData({ noteId: id, startX: e.clientX, startY: e.clientY, initialPinX: note.pinX ?? width / 2, initialPinY: note.pinY ?? 10, rotation: note.rotation, width, height }); };
+  
+  // 🟢 修复1：恢复图钉创建、连线创建、Alt 复制逻辑
   const handleNodeMouseDown = (e: React.MouseEvent, id: string) => {
     if (e.button === 1) return; e.stopPropagation(); const targetNote = notes.find(n => n.id === id); if (!targetNote) return;
     if (!connectingNodeId && !isPinMode) setSelectedNodeId(id);
-    if (isPinMode || connectingNodeId) return;
+    
+    // 恢复：图钉和连线模式下的点击逻辑
+    if (isPinMode || connectingNodeId) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2; const cy = rect.top + rect.height / 2;
+        const dx = e.clientX - cx; const dy = e.clientY - cy;
+        const rad = -(targetNote.rotation * Math.PI) / 180;
+        const unrotatedDx = dx * Math.cos(rad) - dy * Math.sin(rad);
+        const unrotatedDy = dx * Math.sin(rad) + dy * Math.cos(rad);
+        const { width: w, height: h } = getNoteDimensions(targetNote);
+        const pinX = w / 2 + (unrotatedDx / view.zoom);
+        const pinY = h / 2 + (unrotatedDy / view.zoom);
+        const updatePin = (n: Note) => ({ ...n, hasPin: true, pinX, pinY });
+
+        if (isPinMode) {
+            const nextNotes = notes.map((n) => n.id === id ? updatePin(n) : n);
+            setNotes(nextNotes); saveToCloud(nextNotes, connections); return;
+        }
+        if (connectingNodeId) {
+            if (connectingNodeId === id) return;
+            const nextNotes = notes.map((n) => n.id === id ? updatePin(n) : n);
+            let nextConns = connections;
+            const exists = connections.some(c => (c.sourceId === connectingNodeId && c.targetId === id) || (c.sourceId === id && c.targetId === connectingNodeId));
+            if (!exists) { nextConns = [...connections, { id: `c-${Date.now()}`, sourceId: connectingNodeId, targetId: id, color: '#D43939' }]; }
+            setNotes(nextNotes); setConnections(nextConns); setConnectingNodeId(null); saveToCloud(nextNotes, nextConns); return;
+        }
+    }
+
     const newZ = maxZIndex + 1; setMaxZIndex(newZ);
-    setNotes(prev => prev.map(n => n.id === id ? { ...n, zIndex: newZ } : n));
+
+    // 恢复：Alt 复制逻辑
+    if (e.altKey) {
+         const newId = `dup-${Date.now()}-${Math.random()}`;
+         const duplicatedNote: Note = { ...targetNote, id: newId, zIndex: newZ, x: targetNote.x, y: targetNote.y, hasPin: false, title: targetNote.title ? `${targetNote.title} (Copy)` : undefined, };
+         const nextNotes = [...notes, duplicatedNote];
+         setNotes(nextNotes); setDraggingId(newId); setSelectedNodeId(newId);
+         const worldMouse = toWorld(e.clientX, e.clientY);
+         setDragOffset({ x: worldMouse.x - targetNote.x, y: worldMouse.y - targetNote.y });
+         return;
+    }
+
+    setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, zIndex: newZ } : n)));
     setDraggingId(id); const worldMouse = toWorld(e.clientX, e.clientY); setDragOffset({ x: worldMouse.x - targetNote.x, y: worldMouse.y - targetNote.y });
   };
 
@@ -167,9 +203,45 @@ const App: React.FC = () => {
     if (pinDragData) { isPinDragRef.current = true; const screenDx = e.clientX - pinDragData.startX; const screenDy = e.clientY - pinDragData.startY; const worldDx = screenDx / view.zoom; const worldDy = screenDy / view.zoom; const rad = -(pinDragData.rotation * Math.PI) / 180; const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad); let newPinX = pinDragData.initialPinX + localDx; let newPinY = pinDragData.initialPinY + localDy; newPinX = Math.max(0, Math.min(newPinX, pinDragData.width)); newPinY = Math.max(0, Math.min(newPinY, pinDragData.height)); setNotes(prev => prev.map(n => n.id === pinDragData.noteId ? { ...n, pinX: newPinX, pinY: newPinY } : n)); return; }
     if (isPanning && lastMousePosRef.current) { const dx = e.clientX - lastMousePosRef.current.x; const dy = e.clientY - lastMousePosRef.current.y; setView(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy })); lastMousePosRef.current = { x: e.clientX, y: e.clientY }; return; }
     if (rotatingId && transformStart) { const deltaX = e.clientX - transformStart.mouseX; const newRotation = transformStart.initialRotation - (deltaX * 0.5); setNotes(prev => prev.map(n => n.id === rotatingId ? { ...n, rotation: newRotation } : n)); return; }
-    if (resizingId && transformStart) { const note = notes.find(n => n.id === resizingId); if(!note) return; const mode = transformStart.resizeMode; const screenDx = e.clientX - transformStart.mouseX; const screenDy = e.clientY - transformStart.mouseY; const worldDx = screenDx / view.zoom; const worldDy = screenDy / view.zoom; const rad = -(transformStart.initialRotation * Math.PI) / 180; const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
-        if (mode === 'CORNER') { const aspectRatio = transformStart.initialWidth / transformStart.initialHeight; const avgWidthChange = (-localDx + localDy * aspectRatio) / 2; let newWidth = Math.max(30, transformStart.initialWidth + avgWidthChange); let newHeight = newWidth / aspectRatio; const widthChange = newWidth - transformStart.initialWidth; const heightChange = newHeight - transformStart.initialHeight; setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, x: transformStart.initialX - (widthChange / 2), y: transformStart.initialY - (heightChange / 2) } : n)); }
-        else { let newWidth = transformStart.initialWidth; let newHeight = transformStart.initialHeight; let newX = transformStart.initialX; let newY = transformStart.initialY; if (mode === 'RIGHT') { newWidth = Math.max(30, transformStart.initialWidth + localDx); } setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, x: newX, y: newY } : n)); }
+    
+    // 🟢 修复3：恢复上下左右的缩放逻辑 (LEFT, RIGHT, TOP, BOTTOM)
+    if (resizingId && transformStart) {
+        const note = notes.find(n => n.id === resizingId); if(!note) return;
+        const isTextType = ['note', 'dossier', 'scrap'].includes(note.type);
+        const mode = transformStart.resizeMode;
+        const screenDx = e.clientX - transformStart.mouseX; const screenDy = e.clientY - transformStart.mouseY;
+        const worldDx = screenDx / view.zoom; const worldDy = screenDy / view.zoom;
+        const rad = -(transformStart.initialRotation * Math.PI) / 180;
+        const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad);
+        const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
+
+        if (mode === 'CORNER') {
+            const aspectRatio = transformStart.initialWidth / transformStart.initialHeight;
+            const avgWidthChange = (-localDx + localDy * aspectRatio) / 2;
+            let newWidth = Math.max(30, transformStart.initialWidth + avgWidthChange);
+            let newScale: number | undefined = undefined;
+            if (isTextType) {
+                const baseWidth = transformStart.initialWidth / transformStart.initialScale;
+                let calculatedScale = newWidth / baseWidth;
+                if (calculatedScale > 3) calculatedScale = 3; if (calculatedScale < 0.5) calculatedScale = 0.5;
+                newScale = calculatedScale; newWidth = baseWidth * newScale;
+            } else { if (newWidth > transformStart.initialWidth * 3) newWidth = transformStart.initialWidth * 3; }
+            let newHeight = newWidth / aspectRatio;
+            const widthChange = newWidth - transformStart.initialWidth; const heightChange = newHeight - transformStart.initialHeight;
+            setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, scale: isTextType ? newScale : undefined, x: transformStart.initialX - (widthChange / 2), y: transformStart.initialY - (heightChange / 2) } : n));
+        } else {
+             // 完整恢复四周拉伸
+             let newWidth = transformStart.initialWidth; let newHeight = transformStart.initialHeight;
+             let newX = transformStart.initialX; let newY = transformStart.initialY;
+             const MIN_W = isTextType ? 100 : 30;
+             let MIN_H = 30; if (note.type === 'dossier') MIN_H = 220; else if (note.type === 'note') MIN_H = 160; else if (note.type === 'scrap') MIN_H = 50;
+
+             if (mode === 'LEFT') { const rawWidth = transformStart.initialWidth - localDx; newWidth = Math.max(MIN_W, rawWidth); newX = transformStart.initialX + localDx; }
+             else if (mode === 'RIGHT') { newWidth = Math.max(MIN_W, transformStart.initialWidth + localDx); if (transformStart.initialWidth + localDx < MIN_W) newX = (transformStart.initialX + transformStart.initialWidth + localDx) - MIN_W; }
+             else if (mode === 'TOP') { const rawHeight = transformStart.initialHeight - localDy; newHeight = Math.max(MIN_H, rawHeight); newY = transformStart.initialY + localDy; }
+             else if (mode === 'BOTTOM') { newHeight = Math.max(MIN_H, transformStart.initialHeight + localDy); if (transformStart.initialHeight + localDy < MIN_H) newY = (transformStart.initialY + transformStart.initialHeight + localDy) - MIN_H; }
+             setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, x: newX, y: newY } : n));
+        }
         return;
     }
     const worldMouse = toWorld(e.clientX, e.clientY); if (connectingNodeId) setMousePos({ x: worldMouse.x, y: worldMouse.y }); if (draggingId) { setNotes((prev) => prev.map((n) => n.id === draggingId ? { ...n, x: worldMouse.x - dragOffset.x, y: worldMouse.y - dragOffset.y } : n)); }
@@ -205,34 +277,36 @@ const App: React.FC = () => {
 
   return (
     <div ref={boardRef} className={`w-screen h-screen relative overflow-hidden select-none ${isPanning ? 'cursor-grabbing' : 'cursor-grab'}`} style={{ backgroundImage: `url("${GRID_URL}"), linear-gradient(180deg, #A38261 22.65%, #977049 100%)`, backgroundPosition: `${view.x}px ${view.y}px, 0 0`, backgroundSize: `${30 * view.zoom}px ${30 * view.zoom}px, 100% 100%`, backgroundRepeat: 'repeat, no-repeat', backgroundColor: '#A38261' }} onWheel={handleWheel} onMouseDown={handleBackgroundMouseDown} onMouseMove={handleMouseMove} onClick={handleBackgroundClick} onDrop={handleDrop} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver}>
+      {/* 🟢 修复4：增强虚线显示 (通过 CSS 强制覆盖) */}
+      <style>{`.animate-dash { stroke-dasharray: 8 4 !important; }`}</style>
+      
       <audio ref={audioRef} src="/home_bgm.mp3" loop />
       
-      {isLoading && (
-        <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-3 bg-black/70 backdrop-blur-md text-white/90 px-4 py-2 rounded-full border border-white/10 shadow-lg pointer-events-none animate-in fade-in slide-in-from-bottom-2">
-            <Loader2 className="animate-spin text-yellow-400" size={16} />
-            <span className="font-mono text-xs tracking-wider">SYNCING EVIDENCE...</span>
-        </div>
-      )}
+      {isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-3 bg-black/70 backdrop-blur-md text-white/90 px-4 py-2 rounded-full border border-white/10 shadow-lg pointer-events-none"><Loader2 className="animate-spin text-yellow-400" size={16} /><span className="font-mono text-xs tracking-wider">SYNCING...</span></div>}
+      {!isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-2 pointer-events-none opacity-50 hover:opacity-100 transition-opacity"><div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" /><span className="font-mono text-[10px] text-white/70 tracking-widest">SECURE CONN.</span></div>}
       
-      {!isLoading && (
-         <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-2 pointer-events-none opacity-50 hover:opacity-100 transition-opacity">
-             <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
-             <span className="font-mono text-[10px] text-white/70 tracking-widest">SECURE CONN. ESTABLISHED</span>
-         </div>
-      )}
-      
-      {/* UI Controls: Left */}
-      {!isUIHidden && <div className="absolute top-4 left-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto"><div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-float border border-white/10 max-w-sm"><h1 className="text-xl font-bold font-handwriting mb-1 text-red-500">CASE #2023-X</h1><p className="text-xs text-gray-300 mb-4">{isPinMode ? <span className="text-yellow-400 font-bold animate-pulse">PIN MODE ACTIVE</span> : <span className="text-gray-400">Drag background to pan. Scroll to zoom.</span>}</p><div className="flex flex-col gap-2"><button onClick={() => setIsPinMode(!isPinMode)} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600'}`}><MapPin size={16} /> {isPinMode ? 'DONE' : 'PIN TOOL'}</button><div className="grid grid-cols-2 gap-2 mt-2"><button onClick={() => addNote('note')} className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs">Add Note</button><button onClick={() => addNote('photo')} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button><button onClick={() => addNote('dossier')} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button><button onClick={() => addNote('scrap')} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button><button onClick={() => addNote('marker')} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button><button onClick={clearBoard} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1"><Trash2 size={12}/> Clear</button></div></div></div></div>}
+      {/* UI Controls */}
+      {!isUIHidden && <div className="absolute top-4 left-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto"><div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-float border border-white/10 max-w-sm"><h1 className="text-xl font-bold font-handwriting mb-1 text-red-500">CASE #2023-X</h1><div className="flex flex-col gap-2"><button onClick={() => setIsPinMode(!isPinMode)} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600'}`}><MapPin size={16} /> {isPinMode ? 'DONE' : 'PIN TOOL'}</button><div className="grid grid-cols-2 gap-2 mt-2"><button onClick={() => addNote('note')} className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs">Add Note</button><button onClick={() => addNote('photo')} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button><button onClick={() => addNote('dossier')} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button><button onClick={() => addNote('scrap')} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button><button onClick={() => addNote('marker')} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button><button onClick={clearBoard} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1"><Trash2 size={12}/> Clear</button></div></div></div></div>}
       {!isUIHidden && <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto"><div className="bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-float"><button onClick={handleZoomIn} className="p-2 hover:bg-white/10 rounded-t-lg transition-colors"><Plus size={20} /></button><div className="text-xs font-mono py-1 w-12 text-center border-y border-white/10 select-none">{Math.round(view.zoom * 100)}%</div><button onClick={handleZoomOut} className="p-2 hover:bg-white/10 border-b border-white/10 transition-colors"><Minus size={20} /></button><button onClick={toggleMusic} className="p-2 hover:bg-white/10 rounded-b-lg transition-colors" title={isMusicPlaying ? "Mute Music" : "Play Music"}>{isMusicPlaying ? <Volume2 size={20} /> : <VolumeX size={20} />}</button></div><div className="bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-float"><button onClick={handleResetView} className="p-2 hover:bg-white/10 rounded-t-lg border-b border-white/10 transition-colors" title="Reset View"><LocateFixed size={20} /></button><button onClick={() => { setIsUIHidden(true); setShowHiddenModeToast(true); }} className="p-2 hover:bg-white/10 rounded-b-lg transition-colors" title="Hide UI"><Maximize size={20} /></button></div></div>}
-      
       {connectingNodeId && !isUIHidden && <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[9999] bg-red-600 text-white px-6 py-2 rounded-full shadow-xl animate-bounce font-bold pointer-events-none">Connecting Evidence...</div>}
       {isDraggingFile && <div className="absolute inset-0 bg-black/60 z-[10000] flex items-center justify-center border-8 border-dashed border-gray-400 m-4 rounded-xl pointer-events-none"><div className="bg-gray-800 text-white px-8 py-6 rounded-xl shadow-2xl flex flex-col items-center gap-4 animate-bounce"><UploadCloud size={64} className="text-blue-400"/><h2 className="text-2xl font-bold uppercase tracking-widest">Drop Evidence File</h2></div></div>}
 
       <div className="absolute top-0 left-0 w-0 h-0 overflow-visible pointer-events-none" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, transformOrigin: '0 0' }}>
           {notes.map((note) => <DetectiveNode key={note.id} note={note} onMouseDown={handleNodeMouseDown} onDoubleClick={handleDoubleClick} isConnecting={!!connectingNodeId} isSelectedForConnection={connectingNodeId === note.id} isPinMode={isPinMode} isSelected={selectedNodeId === note.id} onDelete={() => handleDeleteNote(note.id)} onStartPin={() => handleStartPinFromCorner(note.id)} onResize={handleUpdateNodeSize} onRotateStart={(e) => handleRotateStart(e, note.id)} onResizeStart={(e, mode) => handleResizeStart(e, note.id, mode)} />)}
           <ConnectionLayer connections={connections} notes={notes} connectingNodeId={connectingNodeId} mousePos={mousePos} onDeleteConnection={handleDeleteConnection} onPinClick={handlePinClick} isPinMode={isPinMode} onConnectionColorChange={handleUpdateConnectionColor} onPinMouseDown={handlePinMouseDown} />
+          
+          {/* 🟢 修复2：恢复拖拽/旋转/缩放时的数值显示浮层 */}
           {draggingId && (() => { const n = notes.find(i => i.id === draggingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">X: {Math.round(n.x)}, Y: {Math.round(n.y)}</div></div> })()}
           {pinDragData && (() => { const n = notes.find(i => i.id === pinDragData.noteId); if (!n || !n.hasPin) return null; const { width, height } = getNoteDimensions(n); const cx = n.x + width / 2; const cy = n.y + height / 2; const px = n.pinX ?? width / 2; const py = n.pinY ?? 10; const dx = px - width / 2; const dy = py - height / 2; const rad = (n.rotation * Math.PI) / 180; const rDx = dx * Math.cos(rad) - dy * Math.sin(rad); const rDy = dx * Math.sin(rad) + dy * Math.cos(rad); const pinWorldX = cx + rDx; const pinWorldY = cy + rDy; return <div style={{ position: 'absolute', left: pinWorldX, top: pinWorldY - 35, transform: 'translateX(-50%)' }} className="z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">X: {Math.round(n.pinX!)}, Y: {Math.round(n.pinY!)}</div></div> })()}
+          {rotatingId && (() => { const n = notes.find(i => i.id === rotatingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{Math.round(n.rotation)}°</div></div> })()}
+          {resizingId && transformStart && (() => {
+             const n = notes.find(i => i.id === resizingId); if (!n) return null;
+             const isTextType = ['note', 'dossier', 'scrap'].includes(n.type);
+             let text = '';
+             if (transformStart.resizeMode === 'CORNER' && isTextType) text = `${Math.round((n.scale || 1) * 100)}%`;
+             else text = `W: ${Math.round(n.width || 0)} H: ${Math.round(n.height || 0)}`;
+             return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{text}</div></div>
+          })()}
       </div>
       {editingNodeId && getEditingNote() && <EditModal note={getEditingNote()!} onSave={handleSaveNote} onClose={() => setEditingNodeId(null)} />}
     </div>
