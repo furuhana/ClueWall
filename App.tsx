@@ -25,7 +25,50 @@ interface TransformStartData {
 }
 
 const App: React.FC = () => {
-  const [notes, setNotes] = useState<Note[]>(INITIAL_NOTES);
+  // Initialize Notes Centered on Screen
+  const [notes, setNotes] = useState<Note[]>(() => {
+    // Safety check for SSR or missing window
+    if (typeof window === 'undefined') return INITIAL_NOTES;
+    if (INITIAL_NOTES.length === 0) return [];
+
+    // 1. Calculate Bounding Box of the initial group
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    INITIAL_NOTES.forEach(note => {
+        // Use existing dimensions or defaults for calculation
+        const w = note.width || 256;
+        const h = note.height || 200;
+        
+        if (note.x < minX) minX = note.x;
+        if (note.y < minY) minY = note.y;
+        if ((note.x + w) > maxX) maxX = note.x + w;
+        if ((note.y + h) > maxY) maxY = note.y + h;
+    });
+
+    const groupWidth = maxX - minX;
+    const groupHeight = maxY - minY;
+    const groupCenterX = minX + (groupWidth / 2);
+    const groupCenterY = minY + (groupHeight / 2);
+
+    // 2. Get Screen Center
+    const screenCenterX = window.innerWidth / 2;
+    const screenCenterY = window.innerHeight / 2;
+
+    // 3. Calculate Offset needed to center the group
+    const dx = screenCenterX - groupCenterX;
+    const dy = screenCenterY - groupCenterY;
+
+    // 4. Apply Offset to all notes
+    return INITIAL_NOTES.map(note => ({
+        ...note,
+        x: note.x + dx,
+        y: note.y + dy
+    }));
+  });
+
   const [connections, setConnections] = useState<Connection[]>(INITIAL_CONNECTIONS);
   
   // --- Viewport State (Pan & Zoom) ---
@@ -341,8 +384,9 @@ const App: React.FC = () => {
             if (connectingNodeId === id) return;
             setNotes((prev) => prev.map((n) => n.id === id ? updatePin(n) : n));
             setConnections((prev) => {
+                // Use Standard Red for new connections
                 const exists = prev.some(c => (c.sourceId === connectingNodeId && c.targetId === id) || (c.sourceId === id && c.targetId === connectingNodeId));
-                return exists ? prev : [...prev, { id: `c-${Date.now()}`, sourceId: connectingNodeId, targetId: id, color: '#d93025' }];
+                return exists ? prev : [...prev, { id: `c-${Date.now()}`, sourceId: connectingNodeId, targetId: id, color: '#D43939' }];
             });
             setConnectingNodeId(null);
             return;
@@ -619,13 +663,19 @@ const App: React.FC = () => {
       if (connectingNodeId !== id) {
         setConnections((prev) => {
             const exists = prev.some(c => (c.sourceId === connectingNodeId && c.targetId === id) || (c.sourceId === id && c.targetId === connectingNodeId));
-            return exists ? prev : [...prev, { id: `c-${Date.now()}-${Math.random()}`, sourceId: connectingNodeId, targetId: id, color: '#d93025' }];
+            return exists ? prev : [...prev, { id: `c-${Date.now()}-${Math.random()}`, sourceId: connectingNodeId, targetId: id, color: '#D43939' }];
         });
       }
       setConnectingNodeId(null);
     }
   };
   const handleDeleteConnection = (id: string) => setConnections(prev => prev.filter(c => c.id !== id));
+  
+  // NEW: Update Connection Color
+  const handleUpdateConnectionColor = (id: string, color: string) => {
+      setConnections(prev => prev.map(c => c.id === id ? { ...c, color } : c));
+  };
+
   const handleDeleteNote = (id: string) => {
     setNotes(prev => prev.filter(n => n.id !== id));
     setConnections(prev => prev.filter(c => c.sourceId !== id && c.targetId !== id));
@@ -878,6 +928,7 @@ const App: React.FC = () => {
             onDeleteConnection={handleDeleteConnection}
             onPinClick={handlePinClick} 
             isPinMode={isPinMode}
+            onConnectionColorChange={handleUpdateConnectionColor}
           />
       </div>
 
