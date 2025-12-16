@@ -541,7 +541,7 @@ const App: React.FC = () => {
         x, y,
         zIndex: maxZIndex + 1,
         rotation: (Math.random() * 10) - 5,
-        fileId: type === 'photo' ? `https://picsum.photos/200/200?random=${Date.now()}` : undefined,
+        fileId: type === 'photo' ? '/photo_1.png' : undefined,
         hasPin: false,
         scale: 1,
      };

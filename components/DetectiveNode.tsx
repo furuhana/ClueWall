@@ -120,11 +120,11 @@ const DetectiveNode: React.FC<DetectiveNodeProps> = ({
       case 'photo':
         return (
           <div style={photoStyle} className="p-3 h-full flex flex-col">
-            <div className="bg-black/10 w-full flex-1 mb-2 overflow-hidden flex items-center justify-center bg-gray-900 min-h-0 rounded">
+            <div className="w-full flex-1 mb-2 overflow-hidden flex items-center justify-center min-h-0 rounded">
               {note.fileId ? (
                 <img src={note.fileId} alt="evidence" className="object-cover w-full h-full pointer-events-none" />
               ) : (
-                <span className="text-white text-xs">No Image</span>
+                <span className="text-gray-400 text-xs">No Image</span>
               )}
             </div>
             <p className="font-marker text-center text-gray-800 text-sm leading-tight break-words whitespace-pre-wrap flex-shrink-0">

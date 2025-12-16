@@ -5,7 +5,7 @@ export const INITIAL_NOTES: Note[] = [
     id: 'n1',
     type: 'photo',
     content: 'Suspect spotted leaving the scene.',
-    fileId: 'https://picsum.photos/200/200',
+    fileId: '/photo_1.png',
     x: 100,
     y: 100,
     zIndex: 1,
