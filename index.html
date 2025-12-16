@@ -4,7 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Detective Wall</title>
+    
     <script src="https://cdn.tailwindcss.com"></script>
+    
     <script>
       tailwind.config = {
         theme: {
@@ -25,6 +27,7 @@
         }
       }
     </script>
+
     <style>
       body {
         margin: 0;
@@ -41,8 +44,6 @@
       }
       
       /* Animation for the selection dashed border */
-      /* Pattern is 10px dash + 6px gap = 16px total */
-      /* To loop seamlessly, offset must travel a multiple of 16px (e.g. 32) */
       @keyframes dash {
         from {
           stroke-dashoffset: 0;
@@ -55,21 +56,12 @@
         animation: dash 1s linear infinite;
       }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
+  <link rel="stylesheet" href="/index.css">
 </head>
   <body>
     <div id="root"></div>
+    
+    <script type="module" src="/src/index.tsx"></script>
   <script type="module" src="/index.tsx"></script>
 </body>
 </html>
