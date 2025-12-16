@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Note } from '../types';
-import { X, Upload } from 'lucide-react';
+import { X, Upload, Loader2 } from 'lucide-react';
+import { uploadImage } from '../api'; // 🟢 引入上传函数
 
 interface EditModalProps {
   note: Note;
@@ -12,9 +13,11 @@ const EditModal: React.FC<EditModalProps> = ({ note, onSave, onClose }) => {
   const [content, setContent] = useState(note.content);
   const [title, setTitle] = useState(note.title || "");
   const [subtitle, setSubtitle] = useState(note.subtitle || "");
+  
+  // 图片相关状态
   const [previewImage, setPreviewImage] = useState(note.fileId);
+  const [isUploading, setIsUploading] = useState(false); // 🟢 上传加载状态
 
-  // Focus trap could be added here, but simple effect is enough for MVP
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -23,14 +26,28 @@ const EditModal: React.FC<EditModalProps> = ({ note, onSave, onClose }) => {
     return () => window.removeEventListener('keydown', handleEsc);
   }, [onClose]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 🟢 核心修改：选择文件后立即上传到云端
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPreviewImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      
+      setIsUploading(true); // 开始转圈圈
+      
+      try {
+        // 调用我们写的 api.ts 上传到 Google Drive
+        const uploadedUrl = await uploadImage(file);
+        
+        if (uploadedUrl) {
+            setPreviewImage(uploadedUrl); // 成功！显示云端链接
+        } else {
+            alert("上传失败，请检查网络或 Vercel 环境变量配置");
+        }
+      } catch (error) {
+        console.error("Upload error:", error);
+        alert("上传发生错误");
+      } finally {
+        setIsUploading(false); // 停止转圈圈
+      }
     }
   };
 
@@ -41,7 +58,7 @@ const EditModal: React.FC<EditModalProps> = ({ note, onSave, onClose }) => {
       content,
       title: title || undefined,
       subtitle: subtitle || undefined,
-      fileId: previewImage,
+      fileId: previewImage, // 保存的是云端链接
     });
   };
 
@@ -68,23 +85,11 @@ const EditModal: React.FC<EditModalProps> = ({ note, onSave, onClose }) => {
             <div className="grid grid-cols-2 gap-4">
                <div className="flex flex-col gap-1">
                  <label className="text-xs font-bold text-gray-500 uppercase">Tab Label</label>
-                 <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Top Secret"
-                    className="p-2 border border-gray-300 rounded focus:border-red-500 outline-none"
-                 />
+                 <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Top Secret" className="p-2 border border-gray-300 rounded focus:border-red-500 outline-none"/>
                </div>
                <div className="flex flex-col gap-1">
                  <label className="text-xs font-bold text-gray-500 uppercase">File Label</label>
-                 <input
-                    type="text"
-                    value={subtitle}
-                    onChange={(e) => setSubtitle(e.target.value)}
-                    placeholder="Case File"
-                    className="p-2 border border-gray-300 rounded focus:border-red-500 outline-none"
-                 />
+                 <input type="text" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder="Case File" className="p-2 border border-gray-300 rounded focus:border-red-500 outline-none"/>
                </div>
             </div>
           )}
@@ -92,17 +97,32 @@ const EditModal: React.FC<EditModalProps> = ({ note, onSave, onClose }) => {
           {isPhotoType && (
             <div className="flex flex-col gap-2">
               <label className="text-xs font-bold text-gray-500 uppercase">Visual Evidence</label>
+              
+              {/* 图片预览区域 */}
               <div className="relative group w-full h-48 bg-gray-200 rounded overflow-hidden border border-gray-300 flex items-center justify-center">
-                {previewImage ? (
+                
+                {/* 1. 加载中 */}
+                {isUploading ? (
+                    <div className="flex flex-col items-center text-gray-500">
+                        <Loader2 className="animate-spin mb-2" size={32} />
+                        <span className="text-xs font-mono">UPLOADING TO SECURE SERVER...</span>
+                    </div>
+                ) : previewImage ? (
+                  // 2. 有图片
                   <img src={previewImage} alt="Preview" className="w-full h-full object-contain" />
                 ) : (
+                  // 3. 空状态
                   <span className="text-gray-400 text-sm">No Image Selected</span>
                 )}
-                <label className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                  <Upload size={24} className="mb-2" />
-                  <span className="text-xs font-bold">UPLOAD IMAGE</span>
-                  <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
-                </label>
+
+                {/* 上传按钮 (遮罩) */}
+                {!isUploading && (
+                    <label className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                    <Upload size={24} className="mb-2" />
+                    <span className="text-xs font-bold">UPLOAD IMAGE</span>
+                    <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+                    </label>
+                )}
               </div>
             </div>
           )}
@@ -121,9 +141,11 @@ const EditModal: React.FC<EditModalProps> = ({ note, onSave, onClose }) => {
 
           <button 
             type="submit" 
-            className="mt-2 bg-red-700 hover:bg-red-800 text-white font-bold py-3 rounded shadow-md transition-colors uppercase tracking-wider"
+            disabled={isUploading} // 上传时禁止保存
+            className={`mt-2 font-bold py-3 rounded shadow-md transition-colors uppercase tracking-wider text-white
+                ${isUploading ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-700 hover:bg-red-800'}`}
           >
-            Update Evidence
+            {isUploading ? 'Uploading...' : 'Update Evidence'}
           </button>
         </form>
       </div>
