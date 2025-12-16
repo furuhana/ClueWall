@@ -115,6 +115,7 @@ const App: React.FC = () => {
   // State for Tools
   const [isPinMode, setIsPinMode] = useState<boolean>(false);
   const [isUIHidden, setIsUIHidden] = useState<boolean>(false);
+  const [showHiddenModeToast, setShowHiddenModeToast] = useState(false);
 
   // State for File Dragging
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -280,6 +281,17 @@ const App: React.FC = () => {
         }
     }
   }, []);
+
+  // --- Hide UI Toast Logic ---
+  useEffect(() => {
+      if (isUIHidden) {
+          setShowHiddenModeToast(true);
+          const timer = setTimeout(() => setShowHiddenModeToast(false), 3000);
+          return () => clearTimeout(timer);
+      } else {
+          setShowHiddenModeToast(false);
+      }
+  }, [isUIHidden]);
 
   const toggleMusic = () => {
     if (!audioRef.current) return;
@@ -969,6 +981,18 @@ const App: React.FC = () => {
     >
       {/* Background Music Audio Element */}
       <audio ref={audioRef} src="/home_bgm.mp3" loop />
+      
+      {/* Hidden UI Mode Toast Notification */}
+      <div 
+        className={`absolute top-6 left-1/2 transform -translate-x-1/2 z-[11000] pointer-events-none transition-all duration-700 ease-in-out ${
+            showHiddenModeToast ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-8'
+        }`}
+      >
+          <div className="bg-black/70 backdrop-blur-md text-white/90 px-6 py-3 rounded-full border border-white/10 shadow-2xl flex items-center gap-3">
+             <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
+             <span className="font-mono text-sm font-bold tracking-wide">PRESS ESC TO EXIT HIDDEN UI MODE</span>
+          </div>
+      </div>
 
       {/* UI Controls: Left (Tools) */}
       {!isUIHidden && (
