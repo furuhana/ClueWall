@@ -5,11 +5,11 @@ import { getNoteDimensions } from './utils';
 import DetectiveNode from './components/DetectiveNode';
 import ConnectionLayer from './components/ConnectionLayer';
 import EditModal from './components/EditModal';
-import { Trash2, MapPin, UploadCloud, Plus, Minus, Volume2, VolumeX, LocateFixed, Maximize, Loader2, Users } from 'lucide-react';
+import { Trash2, MapPin, UploadCloud, Plus, Minus, Volume2, VolumeX, LocateFixed, Maximize, Loader2, Users, Wifi, WifiOff } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { uploadImage } from './api'; 
 
-// New Grid Pattern
+// Grid Pattern
 const GRID_URL = "data:image/svg+xml,%3Csvg width='30' height='30' viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='30' height='30' fill='none' stroke='%23CAB9A1' stroke-width='0.7' opacity='0.3'/%3E%3C/svg%3E";
 
 type ResizeMode = 'CORNER' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM';
@@ -74,6 +74,20 @@ const App: React.FC = () => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
 
+  // 🔴 关键修复：使用 Ref 来追踪当前正在交互的对象
+  // 这样我们就不需要在 useEffect 里依赖 draggingId，从而避免重复连接
+  const interactionRef = useRef({
+      draggingId,
+      resizingId,
+      rotatingId,
+      pinDragData
+  });
+
+  // 实时同步 State 到 Ref
+  useEffect(() => {
+      interactionRef.current = { draggingId, resizingId, rotatingId, pinDragData };
+  }, [draggingId, resizingId, rotatingId, pinDragData]);
+
   // Helpers
   const toWorld = useCallback((screenX: number, screenY: number) => {
     return {
@@ -82,8 +96,9 @@ const App: React.FC = () => {
     };
   }, [view]);
 
-  // 🟢 1. 初始化加载与实时订阅 (Realtime Subscription)
+  // 🟢 1. 初始化加载与实时订阅 (只运行一次！)
   useEffect(() => {
+    // A. 初始加载
     const fetchInitialData = async () => {
       setIsLoading(true);
       const { data: notesData } = await supabase.from('notes').select('*');
@@ -101,6 +116,7 @@ const App: React.FC = () => {
 
     fetchInitialData();
 
+    // B. 开启实时监听
     const channel = supabase
       .channel('detective-wall-changes')
       .on(
@@ -112,8 +128,10 @@ const App: React.FC = () => {
           } else if (payload.eventType === 'UPDATE') {
              const newNote = payload.new as Note;
              setNotes(prev => prev.map(n => {
-                if (n.id === newNote.id && (draggingId === n.id || resizingId === n.id || rotatingId === n.id)) {
-                    return n;
+                // 🟢 智能防抖：检查 Ref，如果当前用户正在操作这个节点，则忽略服务器推送
+                const current = interactionRef.current;
+                if (n.id === newNote.id && (current.draggingId === n.id || current.resizingId === n.id || current.rotatingId === n.id)) {
+                    return n; // 保持本地状态
                 }
                 return n.id === newNote.id ? newNote : n;
              }));
@@ -141,7 +159,7 @@ const App: React.FC = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [draggingId, resizingId, rotatingId]);
+  }, []); // 🟢 这里的依赖项为空数组，保证只运行一次！
 
   // 🟢 2. 保存函数 (Upsert)
   const saveToCloud = async (changedNotes: Note[], changedConns: Connection[]) => {
@@ -276,12 +294,10 @@ const App: React.FC = () => {
     setView({ x: newX, y: newY, zoom: newZoom });
   };
   
-  // 🟢 确保这个函数定义在 App 组件内部
   const handleBackgroundMouseDown = (e: React.MouseEvent) => {
     cancelAnimation(); if (e.button === 0 || e.button === 1) { if (e.button === 1) e.preventDefault(); setIsPanning(true); lastMousePosRef.current = { x: e.clientX, y: e.clientY }; }
   };
   
-  // 🟢 确保这个函数定义在 App 组件内部
   const handleBackgroundClick = (e: React.MouseEvent) => {
     if (!isPanning && (e.target === boardRef.current)) { setConnectingNodeId(null); setSelectedNodeId(null); setIsPinMode(false); }
   };
@@ -315,10 +331,7 @@ const App: React.FC = () => {
     const targetNote = notes.find(n => n.id === id); if (!targetNote) return;
     if (!connectingNodeId && !isPinMode) setSelectedNodeId(id);
     
-    if (isPinMode || connectingNodeId) {
-        // 简化逻辑
-        return; 
-    }
+    if (isPinMode || connectingNodeId) { return; }
 
     const newZ = maxZIndex + 1;
     setMaxZIndex(newZ);
@@ -333,7 +346,7 @@ const App: React.FC = () => {
         const worldMouse = toWorld(e.clientX, e.clientY);
         setNotes(prev => prev.map(n => n.id === draggingId ? { ...n, x: worldMouse.x - dragOffset.x, y: worldMouse.y - dragOffset.y } : n));
     }
-    // ... 其他逻辑保留
+    
     if (pinDragData) {
         isPinDragRef.current = true;
         const screenDx = e.clientX - pinDragData.startX;
@@ -549,14 +562,19 @@ const App: React.FC = () => {
     >
       <audio ref={audioRef} src="/home_bgm.mp3" loop />
       
+      {/* 🟢 优化后的 Loading 样式：不再遮挡全屏，只在角落显示 */}
       {isLoading && (
-        <div className="absolute inset-0 z-[12000] flex items-center justify-center bg-black/50 backdrop-blur-sm text-white">
-            <div className="flex flex-col items-center gap-4">
-                <Loader2 className="animate-spin" size={48} />
-                <span className="font-mono text-xl tracking-widest uppercase">Connecting to Secure Database...</span>
-                <span className="text-xs text-green-400 font-mono flex items-center gap-2"><Users size={12}/> LIVE SYNC ACTIVE</span>
-            </div>
+        <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-3 bg-black/70 backdrop-blur-md text-white/90 px-4 py-2 rounded-full border border-white/10 shadow-lg pointer-events-none animate-in fade-in slide-in-from-bottom-2">
+            <Loader2 className="animate-spin text-yellow-400" size={16} />
+            <span className="font-mono text-xs tracking-wider">SYNCING EVIDENCE...</span>
         </div>
+      )}
+      
+      {!isLoading && (
+         <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-2 pointer-events-none opacity-50 hover:opacity-100 transition-opacity">
+             <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
+             <span className="font-mono text-[10px] text-white/70 tracking-widest">SECURE CONN. ESTABLISHED</span>
+         </div>
       )}
       
       {/* Hidden UI Mode Toast */}
