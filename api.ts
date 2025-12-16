@@ -2,7 +2,7 @@ import { Note, Connection } from './types';
 
 // 🟢 关键修改：从 Vercel/Vite 环境变量中读取 URL
 // 如果本地开发，请在根目录新建 .env.local 文件并写入: VITE_API_URL=你的GAS链接
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = (import.meta as any).env.VITE_API_URL;
 
 // 调试日志：如果没读到 URL，会在控制台报错提醒
 if (!API_URL) {
