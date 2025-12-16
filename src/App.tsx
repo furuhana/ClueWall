@@ -12,7 +12,6 @@ const GRID_URL = "data:image/svg+xml,%3Csvg width='30' height='30' viewBox='0 0 
 type ResizeMode = 'CORNER' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM';
 interface TransformStartData { mouseX: number; mouseY: number; initialRotation: number; initialWidth: number; initialHeight: number; initialX: number; initialY: number; initialScale: number; resizeMode?: ResizeMode; }
 interface PinDragData { noteId: string; startX: number; startY: number; initialPinX: number; initialPinY: number; rotation: number; width: number; height: number; }
-// 🟢 新增：选框的数据结构
 interface SelectionBox { startX: number; startY: number; currentX: number; currentY: number; }
 
 const App: React.FC = () => {
@@ -23,17 +22,12 @@ const App: React.FC = () => {
   const [isPanning, setIsPanning] = useState(false);
   const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  
-  // Interaction State
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  // 🟢 修改：用于计算批量拖拽的增量，不再存储绝对 Offset
   const lastDragPosRef = useRef<{ x: number; y: number } | null>(null); 
-
   const [maxZIndex, setMaxZIndex] = useState<number>(10);
   
-  // 🟢 核心升级：多选集合
+  // 🟢 选择状态
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  // 🟢 新增：选框状态
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
 
   const [rotatingId, setRotatingId] = useState<string | null>(null);
@@ -52,12 +46,9 @@ const App: React.FC = () => {
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
-  
-  // Spacebar Panning Support
   const [isSpacePressed, setIsSpacePressed] = useState(false);
 
   const interactionRef = useRef({ draggingId, resizingId, rotatingId, pinDragData, selectionBox });
-
   useEffect(() => { interactionRef.current = { draggingId, resizingId, rotatingId, pinDragData, selectionBox }; }, [draggingId, resizingId, rotatingId, pinDragData, selectionBox]);
   const toWorld = useCallback((screenX: number, screenY: number) => { return { x: (screenX - view.x) / view.zoom, y: (screenY - view.y) / view.zoom }; }, [view]);
 
@@ -88,7 +79,6 @@ const App: React.FC = () => {
              const newNote = payload.new as Note;
              setNotes(prev => prev.map(n => {
                 const current = interactionRef.current;
-                // 防抖：如果自己正在拖拽/调整该节点，忽略更新
                 if (n.id === newNote.id && (current.draggingId === n.id || current.resizingId === n.id || current.rotatingId === n.id)) return n;
                 return n.id === newNote.id ? newNote : n;
              }));
@@ -127,21 +117,13 @@ const App: React.FC = () => {
       cancelAnimation(); animationFrameRef.current = requestAnimationFrame(animate);
   };
 
-  // Handlers
   const handleWheel = (e: React.WheelEvent) => { if (editingNodeId) return; cancelAnimation(); const delta = -e.deltaY * 0.001; const newZoom = Math.min(Math.max(0.1, view.zoom + delta), 3.0); const worldMouse = toWorld(e.clientX, e.clientY); setView({ x: e.clientX - worldMouse.x * newZoom, y: e.clientY - worldMouse.y * newZoom, zoom: newZoom }); };
   
-  // 🟢 背景点击：区分 选框(Left) 和 平移(Middle/Space)
   const handleBackgroundMouseDown = (e: React.MouseEvent) => {
     cancelAnimation();
-    // 中键 (1) 或者 按住空格 -> 平移模式
     if (e.button === 1 || isSpacePressed) {
-        e.preventDefault(); 
-        setIsPanning(true); 
-        lastMousePosRef.current = { x: e.clientX, y: e.clientY };
-    } 
-    // 左键 (0) -> 框选模式
-    else if (e.button === 0) {
-        // 清空当前选择 (除非按住 Shift/Ctrl，这里简单处理先清空)
+        e.preventDefault(); setIsPanning(true); lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+    } else if (e.button === 0) {
         if (!e.ctrlKey && !e.shiftKey) setSelectedIds(new Set());
         setSelectionBox({ startX: e.clientX, startY: e.clientY, currentX: e.clientX, currentY: e.clientY });
     }
@@ -149,9 +131,7 @@ const App: React.FC = () => {
 
   const handleBackgroundClick = (e: React.MouseEvent) => {
     if (!isPanning && !selectionBox && (e.target === boardRef.current)) { 
-        setConnectingNodeId(null); 
-        setSelectedIds(new Set()); // 点击空白取消选择
-        setIsPinMode(false); 
+        setConnectingNodeId(null); setSelectedIds(new Set()); setIsPinMode(false); 
     }
   };
 
@@ -162,14 +142,11 @@ const App: React.FC = () => {
   const handleResizeStart = (e: React.MouseEvent, id: string, mode: ResizeMode) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if(!note) return; const dims = getNoteDimensions(note); setResizingId(id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth: dims.width, initialHeight: dims.height, initialX: note.x, initialY: note.y, initialScale: note.scale || 1, resizeMode: mode }); };
   const handlePinMouseDown = (e: React.MouseEvent, id: string) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if (!note) return; const { width, height } = getNoteDimensions(note); isPinDragRef.current = false; setPinDragData({ noteId: id, startX: e.clientX, startY: e.clientY, initialPinX: note.pinX ?? width / 2, initialPinY: note.pinY ?? 10, rotation: note.rotation, width, height }); };
   
-  // 🟢 核心：多选点击逻辑
   const handleNodeMouseDown = (e: React.MouseEvent, id: string) => {
-    if (e.button === 1 || isSpacePressed) return; // 让位给平移
+    if (e.button === 1 || isSpacePressed) return; 
     e.stopPropagation(); 
     
-    // 如果是连线模式，走连线逻辑
     if (isPinMode || connectingNodeId) {
-        // ... (连线代码保持简化，实际生产环境建议解耦) ...
         const targetNote = notes.find(n => n.id === id); if (!targetNote) return;
         const rect = e.currentTarget.getBoundingClientRect();
         const cx = rect.left + rect.width / 2; const cy = rect.top + rect.height / 2;
@@ -182,10 +159,7 @@ const App: React.FC = () => {
         const pinY = h / 2 + (unrotatedDy / view.zoom);
         const updatePin = (n: Note) => ({ ...n, hasPin: true, pinX, pinY });
 
-        if (isPinMode) {
-            const nextNotes = notes.map((n) => n.id === id ? updatePin(n) : n);
-            setNotes(nextNotes); saveToCloud(nextNotes, connections); return;
-        }
+        if (isPinMode) { const nextNotes = notes.map((n) => n.id === id ? updatePin(n) : n); setNotes(nextNotes); saveToCloud(nextNotes, connections); return; }
         if (connectingNodeId) {
             if (connectingNodeId === id) return;
             const nextNotes = notes.map((n) => n.id === id ? updatePin(n) : n);
@@ -197,67 +171,51 @@ const App: React.FC = () => {
         return;
     }
 
-    // 🟢 选择逻辑
     const isMultiSelect = e.ctrlKey || e.metaKey || e.shiftKey;
-    
     if (isMultiSelect) {
-        // Ctrl+Click: 切换选择
-        setSelectedIds(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
+        setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
     } else {
-        // 单击：如果点击的不是已选中的（为了支持多选拖拽），则只选这一个
-        if (!selectedIds.has(id)) {
-            setSelectedIds(new Set([id]));
-        }
-        // 如果点击的是已选中的，保持现状（可能要开始拖拽这组了）
+        if (!selectedIds.has(id)) setSelectedIds(new Set([id]));
     }
 
     const newZ = maxZIndex + 1; setMaxZIndex(newZ);
-    // Alt 复制
     if (e.altKey) {
          const targetNote = notes.find(n => n.id === id);
          if (targetNote) {
              const newId = `dup-${Date.now()}-${Math.random()}`;
              const duplicatedNote: Note = { ...targetNote, id: newId, zIndex: newZ, x: targetNote.x + 20, y: targetNote.y + 20, hasPin: false, title: targetNote.title ? `${targetNote.title} (Copy)` : undefined, };
-             setNotes([...notes, duplicatedNote]); 
-             setDraggingId(newId); 
-             setSelectedIds(new Set([newId])); // 复制后只选中新的
+             setNotes([...notes, duplicatedNote]); setDraggingId(newId); setSelectedIds(new Set([newId])); 
              lastDragPosRef.current = { x: e.clientX, y: e.clientY };
          }
          return;
     }
 
-    // 准备拖拽
     setNotes(prev => prev.map(n => selectedIds.has(n.id) || n.id === id ? { ...n, zIndex: newZ } : n));
     setDraggingId(id); 
     lastDragPosRef.current = { x: e.clientX, y: e.clientY };
   };
 
-  // 🟢 鼠标移动逻辑
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // A. 框选逻辑
+    // 🟢 框选逻辑 (修复版)
     if (selectionBox) {
-        const currentX = e.clientX;
-        const currentY = e.clientY;
+        const currentX = e.clientX; const currentY = e.clientY;
         setSelectionBox(prev => prev ? ({ ...prev, currentX, currentY }) : null);
 
-        // 计算框选碰撞 (World Space)
-        const startWorld = toWorld(Math.min(selectionBox.startX, currentX), Math.min(selectionBox.startY, currentY));
-        const endWorld = toWorld(Math.max(selectionBox.startX, currentX), Math.max(selectionBox.startY, currentY));
-        const boxRect = { x: startWorld.x, y: startWorld.y, w: endWorld.x - startWorld.x, h: endWorld.y - startWorld.y };
+        // 计算框选区域 (World Space)
+        const startScreenX = Math.min(selectionBox.startX, currentX);
+        const startScreenY = Math.min(selectionBox.startY, currentY);
+        const endScreenX = Math.max(selectionBox.startX, currentX);
+        const endScreenY = Math.max(selectionBox.startY, currentY);
+
+        const worldStart = toWorld(startScreenX, startScreenY);
+        const worldEnd = toWorld(endScreenX, endScreenY);
 
         const newSelected = new Set<string>();
         notes.forEach(note => {
             const { width, height } = getNoteDimensions(note);
-            // 简单 AABB 碰撞检测
-            if (note.x < boxRect.x + boxRect.w &&
-                note.x + width > boxRect.x &&
-                note.y < boxRect.y + boxRect.h &&
-                note.y + height > boxRect.y) {
+            // 简单的 AABB 碰撞检测
+            if (note.x < worldEnd.x && note.x + width > worldStart.x &&
+                note.y < worldEnd.y && note.y + height > worldStart.y) {
                 newSelected.add(note.id);
             }
         });
@@ -265,24 +223,18 @@ const App: React.FC = () => {
         return;
     }
 
-    // B. 批量拖拽逻辑
     if (draggingId && lastDragPosRef.current) {
         const dx = (e.clientX - lastDragPosRef.current.x) / view.zoom;
         const dy = (e.clientY - lastDragPosRef.current.y) / view.zoom;
-        
         setNotes(prev => prev.map(n => {
-            // 如果是被拖拽的，或者是已选中的一员，都移动
-            if (n.id === draggingId || selectedIds.has(n.id)) {
-                return { ...n, x: n.x + dx, y: n.y + dy };
-            }
+            if (n.id === draggingId || selectedIds.has(n.id)) { return { ...n, x: n.x + dx, y: n.y + dy }; }
             return n;
         }));
-        
         lastDragPosRef.current = { x: e.clientX, y: e.clientY };
+        return;
     }
     
-    // C. 其他逻辑 (Pin, Resize, Rotate, Pan)
-    if (pinDragData) { /* ... Pin Logic ... */ isPinDragRef.current = true; const screenDx = e.clientX - pinDragData.startX; const screenDy = e.clientY - pinDragData.startY; const worldDx = screenDx / view.zoom; const worldDy = screenDy / view.zoom; const rad = -(pinDragData.rotation * Math.PI) / 180; const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad); let newPinX = pinDragData.initialPinX + localDx; let newPinY = pinDragData.initialPinY + localDy; newPinX = Math.max(0, Math.min(newPinX, pinDragData.width)); newPinY = Math.max(0, Math.min(newPinY, pinDragData.height)); setNotes(prev => prev.map(n => n.id === pinDragData.noteId ? { ...n, pinX: newPinX, pinY: newPinY } : n)); return; }
+    if (pinDragData) { /* ... same pin logic ... */ isPinDragRef.current = true; const screenDx = e.clientX - pinDragData.startX; const screenDy = e.clientY - pinDragData.startY; const worldDx = screenDx / view.zoom; const worldDy = screenDy / view.zoom; const rad = -(pinDragData.rotation * Math.PI) / 180; const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad); let newPinX = pinDragData.initialPinX + localDx; let newPinY = pinDragData.initialPinY + localDy; newPinX = Math.max(0, Math.min(newPinX, pinDragData.width)); newPinY = Math.max(0, Math.min(newPinY, pinDragData.height)); setNotes(prev => prev.map(n => n.id === pinDragData.noteId ? { ...n, pinX: newPinX, pinY: newPinY } : n)); return; }
     if (isPanning && lastMousePosRef.current) { const dx = e.clientX - lastMousePosRef.current.x; const dy = e.clientY - lastMousePosRef.current.y; setView(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy })); lastMousePosRef.current = { x: e.clientX, y: e.clientY }; return; }
     if (rotatingId && transformStart) { const deltaX = e.clientX - transformStart.mouseX; const newRotation = transformStart.initialRotation - (deltaX * 0.5); setNotes(prev => prev.map(n => n.id === rotatingId ? { ...n, rotation: newRotation } : n)); return; }
     if (resizingId && transformStart) { const note = notes.find(n => n.id === resizingId); if(!note) return; const mode = transformStart.resizeMode; const screenDx = e.clientX - transformStart.mouseX; const screenDy = e.clientY - transformStart.mouseY; const worldDx = screenDx / view.zoom; const worldDy = screenDy / view.zoom; const rad = -(transformStart.initialRotation * Math.PI) / 180; const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
@@ -292,10 +244,8 @@ const App: React.FC = () => {
     const worldMouse = toWorld(e.clientX, e.clientY); if (connectingNodeId) setMousePos({ x: worldMouse.x, y: worldMouse.y }); 
   }, [isPanning, draggingId, connectingNodeId, view, toWorld, rotatingId, resizingId, transformStart, pinDragData, notes, selectionBox, selectedIds]); 
 
-  // 🟢 鼠标松开：保存所有变动的笔记
   const handleMouseUp = () => {
     if (draggingId) {
-        // 保存所有选中的（因为它们可能都被拖动了）
         const changedNotes = notes.filter(n => n.id === draggingId || selectedIds.has(n.id));
         if (changedNotes.length > 0) saveToCloud(changedNotes, []);
     }
@@ -303,23 +253,6 @@ const App: React.FC = () => {
     setIsPanning(false); setDraggingId(null); setRotatingId(null); setResizingId(null); setTransformStart(null); setPinDragData(null); setSelectionBox(null); lastMousePosRef.current = null; lastDragPosRef.current = null;
   };
 
-  // Keyboard Listeners (Space for Pan, Delete)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (editingNodeId) { if (e.key === 'Escape') setEditingNodeId(null); return; }
-      if (e.code === 'Space' && !e.repeat) setIsSpacePressed(true); // 空格平移
-      if (e.key === 'Escape') { if (isUIHidden) { setIsUIHidden(false); setShowHiddenModeToast(false); return; } setConnectingNodeId(null); setSelectedIds(new Set()); setIsPinMode(false); setEditingNodeId(null); }
-      if (e.key === 'Delete' || e.key === 'Backspace') { 
-         if (connectingNodeId) setConnectingNodeId(null);
-         else if (selectedIds.size > 0) { selectedIds.forEach(id => handleDeleteNote(id)); setSelectedIds(new Set()); } 
-      }
-    };
-    const handleKeyUp = (e: KeyboardEvent) => { if (e.code === 'Space') setIsSpacePressed(false); };
-    window.addEventListener('keydown', handleKeyDown); window.addEventListener('keyup', handleKeyUp);
-    return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
-  }, [connectingNodeId, editingNodeId, selectedIds, isUIHidden, notes]); 
-
-  // ... (Other standard handlers: PinClick, Delete, Save, Add, etc. - keep same)
   const handlePinClick = (e: React.MouseEvent, id: string) => { e.stopPropagation(); if (isPinDragRef.current) { isPinDragRef.current = false; return; } if (isPinMode) { setIsPinMode(false); setConnectingNodeId(id); return; } if (connectingNodeId === null) { setConnectingNodeId(id); } else { if (connectingNodeId !== id) { const nextConns = [...connections]; const exists = nextConns.some(c => (c.sourceId === connectingNodeId && c.targetId === id) || (c.sourceId === id && c.targetId === connectingNodeId)); if (!exists) { const newConn = { id: `c-${Date.now()}-${Math.random()}`, sourceId: connectingNodeId, targetId: id, color: '#D43939' }; const finalConns = [...nextConns, newConn]; setConnections(finalConns); saveToCloud(notes, finalConns); } } setConnectingNodeId(null); } };
   const handleDeleteConnection = (id: string) => { const nextConns = connections.filter(c => c.id !== id); setConnections(nextConns); deleteFromCloud(undefined, id); };
   const handleUpdateConnectionColor = (id: string, color: string) => { const nextConns = connections.map(c => c.id === id ? { ...c, color } : c); setConnections(nextConns); saveToCloud(notes, nextConns); };
@@ -340,7 +273,6 @@ const App: React.FC = () => {
     const loadedNotes = (await Promise.all(promises)).filter(n => n !== null) as Note[]; if (loadedNotes.length > 0) { const newMaxZ = currentZ; setMaxZIndex(newMaxZ); const nextNotes = [...notes, ...loadedNotes]; setNotes(nextNotes); setSelectedIds(new Set([loadedNotes[0].id])); saveToCloud(loadedNotes, []); }
   }, [maxZIndex, toWorld, notes, connections]);
 
-  // Misc Effects
   const handleUpdateNodeSize = (id: string, width: number, height: number) => { if (resizingId === id) return; setNotes(prev => prev.map(n => n.id === id ? { ...n, width, height } : n)); };
   const isUIHiddenRef = useRef(isUIHidden); useEffect(() => { isUIHiddenRef.current = isUIHidden; }, [isUIHidden]);
   useEffect(() => { const t = setTimeout(() => { if (isUIHiddenRef.current) setShowHiddenModeToast(true); }, 1000); return () => clearTimeout(t); }, []); 
@@ -361,19 +293,9 @@ const App: React.FC = () => {
       {connectingNodeId && !isUIHidden && <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[9999] bg-red-600 text-white px-6 py-2 rounded-full shadow-xl animate-bounce font-bold pointer-events-none">Connecting Evidence...</div>}
       {isDraggingFile && <div className="absolute inset-0 bg-black/60 z-[10000] flex items-center justify-center border-8 border-dashed border-gray-400 m-4 rounded-xl pointer-events-none"><div className="bg-gray-800 text-white px-8 py-6 rounded-xl shadow-2xl flex flex-col items-center gap-4 animate-bounce"><UploadCloud size={64} className="text-blue-400"/><h2 className="text-2xl font-bold uppercase tracking-widest">Drop Evidence File</h2></div></div>}
 
-      {/* 🟢 选框渲染层 */}
+      {/* 🟢 选框层 */}
       {selectionBox && (
-          <div style={{
-              position: 'absolute',
-              left: Math.min(selectionBox.startX, selectionBox.currentX),
-              top: Math.min(selectionBox.startY, selectionBox.currentY),
-              width: Math.abs(selectionBox.currentX - selectionBox.startX),
-              height: Math.abs(selectionBox.currentY - selectionBox.startY),
-              backgroundColor: 'rgba(59, 130, 246, 0.2)',
-              border: '1px solid #3b82f6',
-              zIndex: 9999,
-              pointerEvents: 'none'
-          }} />
+          <div style={{ position: 'absolute', left: Math.min(selectionBox.startX, selectionBox.currentX), top: Math.min(selectionBox.startY, selectionBox.currentY), width: Math.abs(selectionBox.currentX - selectionBox.startX), height: Math.abs(selectionBox.currentY - selectionBox.startY), backgroundColor: 'rgba(59, 130, 246, 0.2)', border: '1px solid #3b82f6', zIndex: 9999, pointerEvents: 'none' }} />
       )}
 
       <div className="absolute top-0 left-0 w-0 h-0 overflow-visible pointer-events-none" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, transformOrigin: '0 0' }}>
@@ -386,8 +308,8 @@ const App: React.FC = () => {
               isConnecting={!!connectingNodeId}
               isSelectedForConnection={connectingNodeId === note.id}
               isPinMode={isPinMode}
-              // 🟢 选中状态改为判断集合
               isSelected={selectedIds.has(note.id)}
+              isMultiSelected={selectedIds.size > 1} // 🟢 传给子组件
               onDelete={() => handleDeleteNote(note.id)}
               onStartPin={() => handleStartPinFromCorner(note.id)}
               onResize={handleUpdateNodeSize}
@@ -396,9 +318,18 @@ const App: React.FC = () => {
             />
           ))}
           <ConnectionLayer connections={connections} notes={notes} connectingNodeId={connectingNodeId} mousePos={mousePos} onDeleteConnection={handleDeleteConnection} onPinClick={handlePinClick} isPinMode={isPinMode} onConnectionColorChange={handleUpdateConnectionColor} onPinMouseDown={handlePinMouseDown} />
-          {/* Overlays */}
+          
+          {/* 🟢 修复3：恢复数值覆盖层 */}
           {draggingId && selectedIds.size <= 1 && (() => { const n = notes.find(i => i.id === draggingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">X: {Math.round(n.x)}, Y: {Math.round(n.y)}</div></div> })()}
           {rotatingId && (() => { const n = notes.find(i => i.id === rotatingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{Math.round(n.rotation)}°</div></div> })()}
+          {resizingId && transformStart && (() => {
+             const n = notes.find(i => i.id === resizingId); if (!n) return null;
+             const isTextType = ['note', 'dossier', 'scrap'].includes(n.type);
+             let text = '';
+             if (transformStart.resizeMode === 'CORNER' && isTextType) text = `${Math.round((n.scale || 1) * 100)}%`;
+             else text = `W: ${Math.round(n.width || 0)} H: ${Math.round(n.height || 0)}`;
+             return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{text}</div></div>
+          })()}
       </div>
       {editingNodeId && getEditingNote() && <EditModal note={getEditingNote()!} onSave={handleSaveNote} onClose={() => setEditingNodeId(null)} />}
     </div>
