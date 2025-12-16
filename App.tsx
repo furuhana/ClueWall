@@ -1135,6 +1135,117 @@ const App: React.FC = () => {
             onConnectionColorChange={handleUpdateConnectionColor}
             onPinMouseDown={handlePinMouseDown}
           />
+
+          {/* Coordinate Overlay for Dragging Notes */}
+          {draggingId && (() => {
+             const n = notes.find(i => i.id === draggingId);
+             if (!n) return null;
+             return (
+                <div 
+                    style={{ 
+                        position: 'absolute', 
+                        left: n.x, 
+                        top: n.y - 35,
+                        width: n.width || 256
+                    }} 
+                    className="flex justify-center z-[99999]"
+                >
+                    <div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">
+                       X: {Math.round(n.x)}, Y: {Math.round(n.y)}
+                    </div>
+                </div>
+             );
+          })()}
+
+          {/* Coordinate Overlay for Dragging Pins */}
+          {pinDragData && (() => {
+             const n = notes.find(i => i.id === pinDragData.noteId);
+             if (!n || !n.hasPin) return null;
+             
+             // Calculate World Position of Pin for Label Placement
+             const { width, height } = getNoteDimensions(n);
+             const cx = n.x + width / 2;
+             const cy = n.y + height / 2;
+             const px = n.pinX ?? width / 2;
+             const py = n.pinY ?? 10;
+             const dx = px - width / 2;
+             const dy = py - height / 2;
+             const rad = (n.rotation * Math.PI) / 180;
+             const rDx = dx * Math.cos(rad) - dy * Math.sin(rad);
+             const rDy = dx * Math.sin(rad) + dy * Math.cos(rad);
+             const pinWorldX = cx + rDx;
+             const pinWorldY = cy + rDy;
+
+             return (
+                <div 
+                    style={{ 
+                        position: 'absolute', 
+                        left: pinWorldX, 
+                        top: pinWorldY - 35,
+                        transform: 'translateX(-50%)'
+                    }} 
+                    className="z-[99999]"
+                >
+                    <div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">
+                       X: {Math.round(n.pinX!)}, Y: {Math.round(n.pinY!)}
+                    </div>
+                </div>
+             );
+          })()}
+
+          {/* Rotation Overlay */}
+          {rotatingId && (() => {
+             const n = notes.find(i => i.id === rotatingId);
+             if (!n) return null;
+             return (
+                <div 
+                    style={{ 
+                        position: 'absolute', 
+                        left: n.x, 
+                        top: n.y - 35,
+                        width: n.width || 256
+                    }} 
+                    className="flex justify-center z-[99999]"
+                >
+                    <div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">
+                       {Math.round(n.rotation)}°
+                    </div>
+                </div>
+             );
+          })()}
+
+          {/* Resize/Scale Overlay */}
+          {resizingId && transformStart && (() => {
+             const n = notes.find(i => i.id === resizingId);
+             if (!n) return null;
+             
+             const isTextType = ['note', 'dossier', 'scrap'].includes(n.type);
+             const mode = transformStart.resizeMode;
+             
+             let text = '';
+             if (mode === 'CORNER' && isTextType) {
+                 text = `${Math.round((n.scale || 1) * 100)}%`;
+             } else {
+                 text = `W: ${Math.round(n.width || 0)} H: ${Math.round(n.height || 0)}`;
+             }
+
+             return (
+                <div 
+                    style={{ 
+                        position: 'absolute', 
+                        left: n.x, 
+                        top: n.y - 35,
+                        width: n.width || 256
+                    }} 
+                    className="flex justify-center z-[99999]"
+                >
+                    <div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">
+                       {text}
+                    </div>
+                </div>
+             );
+          })()}
+
       </div>
 
       {editingNodeId && getEditingNote() && (
