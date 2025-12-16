@@ -6,7 +6,6 @@ import DetectiveNode from './components/DetectiveNode';
 import ConnectionLayer from './components/ConnectionLayer';
 import EditModal from './components/EditModal';
 import { Trash2, MapPin, UploadCloud, Plus, Minus, Volume2, VolumeX, LocateFixed, Maximize, Loader2, Users } from 'lucide-react';
-// 🟢 关键变化：引入 supabase 和 uploadImage (保留图片上传功能)
 import { supabase } from './supabaseClient';
 import { uploadImage } from './api'; 
 
@@ -85,7 +84,6 @@ const App: React.FC = () => {
 
   // 🟢 1. 初始化加载与实时订阅 (Realtime Subscription)
   useEffect(() => {
-    // A. 初始加载
     const fetchInitialData = async () => {
       setIsLoading(true);
       const { data: notesData } = await supabase.from('notes').select('*');
@@ -93,7 +91,6 @@ const App: React.FC = () => {
 
       if (notesData) {
          setNotes(notesData as any);
-         // 计算最大 Z-Index
          const maxZ = notesData.reduce((max: number, n: any) => Math.max(max, n.zIndex || 0), 10);
          setMaxZIndex(maxZ);
       }
@@ -104,21 +101,17 @@ const App: React.FC = () => {
 
     fetchInitialData();
 
-    // B. 开启实时监听 (Supabase Realtime)
     const channel = supabase
       .channel('detective-wall-changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notes' },
         (payload) => {
-          // 处理 Notes 变化
           if (payload.eventType === 'INSERT') {
              setNotes(prev => [...prev, payload.new as Note]);
           } else if (payload.eventType === 'UPDATE') {
              const newNote = payload.new as Note;
-             // 🟢 防抖关键：如果当前用户正在拖拽这个节点，忽略服务器推送，防止回弹
              setNotes(prev => prev.map(n => {
-                // 如果是自己正在拖拽/调整的节点，保持本地状态优先
                 if (n.id === newNote.id && (draggingId === n.id || resizingId === n.id || rotatingId === n.id)) {
                     return n;
                 }
@@ -133,7 +126,6 @@ const App: React.FC = () => {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'connections' },
         (payload) => {
-           // 处理 Connections 变化
            if (payload.eventType === 'INSERT') {
               setConnections(prev => [...prev, payload.new as Connection]);
            } else if (payload.eventType === 'UPDATE') {
@@ -149,16 +141,11 @@ const App: React.FC = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [draggingId, resizingId, rotatingId]); // 依赖项包含交互状态，以便正确过滤 Update
+  }, [draggingId, resizingId, rotatingId]);
 
   // 🟢 2. 保存函数 (Upsert)
   const saveToCloud = async (changedNotes: Note[], changedConns: Connection[]) => {
-      // Supabase 的 Upsert 非常快，我们可以直接保存
-      // 这里的 changedNotes 实际上是当前所有的 notes，为了性能最好只传变化的
-      // 但为了兼容之前逻辑，我们先用 upsert 保存数组，Supabase 会处理
-      
       if (changedNotes.length > 0) {
-        // 注意：这里简单地保存所有状态以确保一致性，生产环境可优化为只保存变化的 ID
         await supabase.from('notes').upsert(changedNotes);
       }
       if (changedConns.length > 0) {
@@ -166,7 +153,7 @@ const App: React.FC = () => {
       }
   };
 
-  // 🟢 3. 删除辅助函数 (Supabase Delete)
+  // 🟢 3. 删除辅助函数
   const deleteFromCloud = async (noteId?: string, connId?: string) => {
       if (noteId) {
           await supabase.from('notes').delete().eq('id', noteId);
@@ -175,7 +162,6 @@ const App: React.FC = () => {
           await supabase.from('connections').delete().eq('id', connId);
       }
   };
-
 
   // --- Paste Handler ---
   useEffect(() => {
@@ -201,7 +187,6 @@ const App: React.FC = () => {
       let currentZ = maxZIndex;
       
       const promises = imageFiles.map(async (file, index) => {
-           // 仍然使用 Google Drive 存图 (api.ts)
            const driveFileId = await uploadImage(file);
            if (!driveFileId) return null;
 
@@ -212,7 +197,6 @@ const App: React.FC = () => {
                    const MAX_WIDTH = 300;
                    let finalWidth = img.width;
                    let finalHeight = img.height;
-                   // ... Resize logic ...
                    if (finalWidth > MAX_WIDTH) { const ratio = MAX_WIDTH / finalWidth; finalWidth = MAX_WIDTH; finalHeight = finalHeight * ratio; }
                    if (finalWidth < 50) finalWidth = 50; if (finalHeight < 50) finalHeight = 50;
                    
@@ -242,7 +226,6 @@ const App: React.FC = () => {
          setMaxZIndex(newMaxZ);
          const newNotes = [...notes, ...loadedNotes];
          setNotes(newNotes);
-         // 保存新笔记到 Supabase
          saveToCloud(loadedNotes, []);
       }
     };
@@ -251,22 +234,16 @@ const App: React.FC = () => {
     return () => window.removeEventListener('paste', handlePaste);
   }, [maxZIndex, toWorld, notes]);
 
-  // ... (Helpers: handleUpdateNodeSize, isUIHidden logic, KeyListeners...) 
-  // 为节省篇幅，关键逻辑在于下面的 Handlers 修改
-
   const handleUpdateNodeSize = (id: string, width: number, height: number) => {
       if (resizingId === id) return;
       setNotes(prev => prev.map(n => n.id === id ? { ...n, width, height } : n));
-      // 注意：这里是被动更新，通常不需要立即保存，除非是其他端的变更
   };
 
-  // ... Toast & Music logic (保持不变) ...
   const isUIHiddenRef = useRef(isUIHidden);
   useEffect(() => { isUIHiddenRef.current = isUIHidden; }, [isUIHidden]);
   useEffect(() => { const t = setTimeout(() => { if (isUIHiddenRef.current) setShowHiddenModeToast(true); }, 1000); return () => clearTimeout(t); }, []); 
   useEffect(() => { if (showHiddenModeToast) { const t = setTimeout(() => setShowHiddenModeToast(false), 3000); return () => clearTimeout(t); } }, [showHiddenModeToast]);
   
-  // Key Listeners
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (editingNodeId) { if (e.key === 'Escape') setEditingNodeId(null); return; }
@@ -276,7 +253,6 @@ const App: React.FC = () => {
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
          if (connectingNodeId) {
-             // 取消连线模式
              setConnectingNodeId(null);
          } else if (selectedNodeId) {
              handleDeleteNote(selectedNodeId);
@@ -286,13 +262,12 @@ const App: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown); return () => window.removeEventListener('keydown', handleKeyDown);
   }, [connectingNodeId, editingNodeId, selectedNodeId, isUIHidden]); 
 
-  // Music
   useEffect(() => { if (audioRef.current) { audioRef.current.volume = 0.5; audioRef.current.play().then(() => setIsMusicPlaying(true)).catch(() => setIsMusicPlaying(false)); } }, []);
   const toggleMusic = () => { if (!audioRef.current) return; if (isMusicPlaying) { audioRef.current.pause(); setIsMusicPlaying(false); } else { audioRef.current.play().then(() => setIsMusicPlaying(true)); } };
 
   // Handlers - 动画 & 视图
   const cancelAnimation = useCallback(() => { if (animationFrameRef.current) { cancelAnimationFrame(animationFrameRef.current); animationFrameRef.current = null; } }, []);
-  const handleResetView = () => { /* ... (保持不变) ... */ setView({x:0, y:0, zoom:1}); }; // 简化展示
+  const handleResetView = () => { setView({x:0, y:0, zoom:1}); }; 
   const handleWheel = (e: React.WheelEvent) => {
     if (editingNodeId) return; cancelAnimation();
     const delta = -e.deltaY * 0.001; const newZoom = Math.min(Math.max(0.1, view.zoom + delta), 3.0);
@@ -300,14 +275,21 @@ const App: React.FC = () => {
     const newX = e.clientX - worldMouse.x * newZoom; const newY = e.clientY - worldMouse.y * newZoom;
     setView({ x: newX, y: newY, zoom: newZoom });
   };
+  
+  // 🟢 确保这个函数定义在 App 组件内部
   const handleBackgroundMouseDown = (e: React.MouseEvent) => {
     cancelAnimation(); if (e.button === 0 || e.button === 1) { if (e.button === 1) e.preventDefault(); setIsPanning(true); lastMousePosRef.current = { x: e.clientX, y: e.clientY }; }
   };
+  
+  // 🟢 确保这个函数定义在 App 组件内部
+  const handleBackgroundClick = (e: React.MouseEvent) => {
+    if (!isPanning && (e.target === boardRef.current)) { setConnectingNodeId(null); setSelectedNodeId(null); setIsPinMode(false); }
+  };
+
   const handleZoomIn = () => setView(v => ({...v, zoom: Math.min(v.zoom + 0.2, 3)}));
   const handleZoomOut = () => setView(v => ({...v, zoom: Math.max(v.zoom - 0.2, 0.1)}));
 
-  // Handlers - 交互 (Drag/Rotate/Resize)
-  // 🟢 关键：我们在操作时不保存，只在 MouseUp 保存
+  // Handlers - 交互
   const handleRotateStart = (e: React.MouseEvent, id: string) => {
       e.stopPropagation(); e.preventDefault();
       const note = notes.find(n => n.id === id); if(!note) return;
@@ -333,22 +315,13 @@ const App: React.FC = () => {
     const targetNote = notes.find(n => n.id === id); if (!targetNote) return;
     if (!connectingNodeId && !isPinMode) setSelectedNodeId(id);
     
-    // ... Pin/Connection creation logic ...
-    // (省略重复的数学计算部分，保持原样即可，关键是状态更新)
-    
-    // 如果是连线逻辑:
     if (isPinMode || connectingNodeId) {
-        // ... (计算 pinX, pinY) ...
-        // 假设计算出了 newNote
-        // saveToCloud([newNote], connections);
-        // 这里为了简化代码，建议直接在 MouseUp 统一处理保存，或者在这里单独处理
-        // 鉴于篇幅，我们保留原有逻辑，但在 setState 后调用 saveToCloud
+        // 简化逻辑
         return; 
     }
 
     const newZ = maxZIndex + 1;
     setMaxZIndex(newZ);
-    // 拖拽开始
     setNotes(prev => prev.map(n => n.id === id ? { ...n, zIndex: newZ } : n));
     setDraggingId(id);
     const worldMouse = toWorld(e.clientX, e.clientY);
@@ -356,31 +329,101 @@ const App: React.FC = () => {
   };
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // ... (保持所有原本的数学计算逻辑: Pin, Panning, Rotating, Resizing, Dragging) ...
-    // 这些逻辑只更新本地 State (setNotes)，不调用 saveToCloud，保证流畅
-    
     if (draggingId) {
         const worldMouse = toWorld(e.clientX, e.clientY);
         setNotes(prev => prev.map(n => n.id === draggingId ? { ...n, x: worldMouse.x - dragOffset.x, y: worldMouse.y - dragOffset.y } : n));
     }
-    // ... 其他 if 块 ...
-    // 注意：这里需要把原来那一大坨数学计算保留。
-    // 为了代码能运行，我这里假设你保留了 handleMouseMove 的完整逻辑。
-    // 如果需要我再次完整列出 handleMouseMove 请告诉我，否则这部分逻辑和之前一样。
-    
-    // 补全必要的逻辑以让代码跑通：
-    if (pinDragData) { /* ... same logic ... */ }
-    if (isPanning) { /* ... same logic ... */ }
-    if (rotatingId) { /* ... same logic ... */ }
-    if (resizingId) { /* ... same logic ... */ }
-    if (connectingNodeId) { /* ... same logic ... */ }
+    // ... 其他逻辑保留
+    if (pinDragData) {
+        isPinDragRef.current = true;
+        const screenDx = e.clientX - pinDragData.startX;
+        const screenDy = e.clientY - pinDragData.startY;
+        const worldDx = screenDx / view.zoom;
+        const worldDy = screenDy / view.zoom;
+        const rad = -(pinDragData.rotation * Math.PI) / 180;
+        const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad);
+        const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
+        let newPinX = pinDragData.initialPinX + localDx;
+        let newPinY = pinDragData.initialPinY + localDy;
+        newPinX = Math.max(0, Math.min(newPinX, pinDragData.width));
+        newPinY = Math.max(0, Math.min(newPinY, pinDragData.height));
+        setNotes(prev => prev.map(n => n.id === pinDragData.noteId ? { ...n, pinX: newPinX, pinY: newPinY } : n));
+        return;
+    }
 
-  }, [isPanning, draggingId, dragOffset, connectingNodeId, view, toWorld, rotatingId, resizingId, transformStart, pinDragData]); // Remove 'notes' from dep to avoid stutter
+    if (isPanning && lastMousePosRef.current) {
+        const dx = e.clientX - lastMousePosRef.current.x;
+        const dy = e.clientY - lastMousePosRef.current.y;
+        setView(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
+        lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+        return;
+    }
 
+    if (rotatingId && transformStart) {
+        const deltaX = e.clientX - transformStart.mouseX;
+        const newRotation = transformStart.initialRotation - (deltaX * 0.5);
+        setNotes(prev => prev.map(n => n.id === rotatingId ? { ...n, rotation: newRotation } : n));
+        return;
+    }
 
-  // 🟢 4. MouseUp: 唯一的保存时刻
+    if (resizingId && transformStart) {
+        const note = notes.find(n => n.id === resizingId); if(!note) return;
+        const isTextType = ['note', 'dossier', 'scrap'].includes(note.type);
+        const mode = transformStart.resizeMode;
+        const screenDx = e.clientX - transformStart.mouseX;
+        const screenDy = e.clientY - transformStart.mouseY;
+        const worldDx = screenDx / view.zoom;
+        const worldDy = screenDy / view.zoom;
+        const rad = -(transformStart.initialRotation * Math.PI) / 180;
+        const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad);
+        const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
+
+        if (mode === 'CORNER') {
+            const aspectRatio = transformStart.initialWidth / transformStart.initialHeight;
+            const avgWidthChange = (-localDx + localDy * aspectRatio) / 2;
+            let newWidth = Math.max(30, transformStart.initialWidth + avgWidthChange);
+            let newScale: number | undefined = undefined;
+            if (isTextType) {
+                const baseWidth = transformStart.initialWidth / transformStart.initialScale;
+                let calculatedScale = newWidth / baseWidth;
+                if (calculatedScale > 3) calculatedScale = 3;
+                if (calculatedScale < 0.5) calculatedScale = 0.5;
+                newScale = calculatedScale;
+                newWidth = baseWidth * newScale;
+            } else {
+                if (newWidth > transformStart.initialWidth * 3) newWidth = transformStart.initialWidth * 3;
+            }
+            let newHeight = newWidth / aspectRatio;
+            const widthChange = newWidth - transformStart.initialWidth;
+            const heightChange = newHeight - transformStart.initialHeight;
+            setNotes(prev => prev.map(n => n.id === resizingId ? { 
+                ...n, width: newWidth, height: newHeight, scale: isTextType ? newScale : undefined,
+                x: transformStart.initialX - (widthChange / 2), y: transformStart.initialY - (heightChange / 2)
+            } : n));
+        } else {
+             // Side resizing simplified
+             let newWidth = transformStart.initialWidth; let newHeight = transformStart.initialHeight;
+             let newX = transformStart.initialX; let newY = transformStart.initialY;
+             const MIN_W = isTextType ? 100 : 30;
+             let MIN_H = 30; if (note.type === 'dossier') MIN_H = 220; else if (note.type === 'note') MIN_H = 160; else if (note.type === 'scrap') MIN_H = 50;
+             if (mode === 'LEFT') { newWidth = Math.max(MIN_W, transformStart.initialWidth - localDx); newX = transformStart.initialX + localDx; }
+             else if (mode === 'RIGHT') { newWidth = Math.max(MIN_W, transformStart.initialWidth + localDx); if (transformStart.initialWidth + localDx < MIN_W) newX = (transformStart.initialX + transformStart.initialWidth + localDx) - MIN_W; }
+             else if (mode === 'TOP') { newHeight = Math.max(MIN_H, transformStart.initialHeight - localDy); newY = transformStart.initialY + localDy; }
+             else if (mode === 'BOTTOM') { newHeight = Math.max(MIN_H, transformStart.initialHeight + localDy); if (transformStart.initialHeight + localDy < MIN_H) newY = (transformStart.initialY + transformStart.initialHeight + localDy) - MIN_H; }
+             setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, x: newX, y: newY } : n));
+        }
+        return;
+    }
+
+    const worldMouse = toWorld(e.clientX, e.clientY);
+    if (connectingNodeId) setMousePos({ x: worldMouse.x, y: worldMouse.y });
+    if (draggingId) {
+      setNotes((prev) => prev.map((n) => n.id === draggingId ? { ...n, x: worldMouse.x - dragOffset.x, y: worldMouse.y - dragOffset.y } : n));
+    }
+  }, [isPanning, draggingId, dragOffset, connectingNodeId, view, toWorld, rotatingId, resizingId, transformStart, pinDragData, notes]); 
+
+  // 4. MouseUp: 保存时刻
   const handleMouseUp = () => {
-    // 只有当真正发生过交互时，才保存
     if (draggingId) {
         const note = notes.find(n => n.id === draggingId);
         if (note) saveToCloud([note], []);
@@ -394,62 +437,103 @@ const App: React.FC = () => {
     setIsPanning(false); setDraggingId(null); setRotatingId(null); setResizingId(null); setTransformStart(null); setPinDragData(null); lastMousePosRef.current = null;
   };
 
-  // 🟢 5. 其他操作的保存点
   const handlePinClick = (e: React.MouseEvent, id: string) => {
-    // ... (逻辑保持不变)
-    // 当生成新连线时：
-    // const newConn = ...
-    // setConnections([...connections, newConn])
-    // saveToCloud([], [newConn]); // 只保存这一条线
+    e.stopPropagation();
+    if (isPinDragRef.current) { isPinDragRef.current = false; return; }
+    if (isPinMode) { setIsPinMode(false); setConnectingNodeId(id); return; }
+    if (connectingNodeId === null) { setConnectingNodeId(id); } else {
+      if (connectingNodeId !== id) {
+        const nextConns = [...connections];
+        const exists = nextConns.some(c => (c.sourceId === connectingNodeId && c.targetId === id) || (c.sourceId === id && c.targetId === connectingNodeId));
+        if (!exists) {
+            const newConn = { id: `c-${Date.now()}-${Math.random()}`, sourceId: connectingNodeId, targetId: id, color: '#D43939' };
+            const finalConns = [...nextConns, newConn];
+            setConnections(finalConns); saveToCloud(notes, finalConns);
+        }
+      }
+      setConnectingNodeId(null);
+    }
   };
 
+  const handleDeleteConnection = (id: string) => { const nextConns = connections.filter(c => c.id !== id); setConnections(nextConns); deleteFromCloud(undefined, id); };
+  const handleUpdateConnectionColor = (id: string, color: string) => { const nextConns = connections.map(c => c.id === id ? { ...c, color } : c); setConnections(nextConns); saveToCloud(notes, nextConns); };
+  
   const handleDeleteNote = (id: string) => {
     const nextNotes = notes.filter(n => n.id !== id);
     const nextConns = connections.filter(c => c.sourceId !== id && c.targetId !== id);
     setNotes(nextNotes); setConnections(nextConns); setSelectedNodeId(null);
-    // 🟢 调用删除
     deleteFromCloud(id);
-    // 还要删除相关的连线，稍微麻烦点，Supabase 支持级联删除，或者这里手动删
     const relatedConns = connections.filter(c => c.sourceId === id || c.targetId === id);
     relatedConns.forEach(c => deleteFromCloud(undefined, c.id));
   };
-  
-  const handleDeleteConnection = (id: string) => {
-      setConnections(prev => prev.filter(c => c.id !== id));
-      deleteFromCloud(undefined, id);
-  };
-  
-  const handleSaveNote = (updatedNote: Note) => { 
-      setNotes(prev => prev.map(n => n.id === updatedNote.id ? updatedNote : n)); 
-      setEditingNodeId(null); 
-      saveToCloud([updatedNote], []);
-  };
+
+  const handleStartPinFromCorner = (id: string) => setIsPinMode(true);
   
   const addNote = (type: Note['type']) => {
-     // ... (生成 newNote 逻辑) ...
-     // const newNote = { ... }
-     // setNotes(prev => [...prev, newNote]);
-     // saveToCloud([newNote], []);
+     const centerX = window.innerWidth / 2; const centerY = window.innerHeight / 2;
+     const worldPos = toWorld(centerX, centerY);
+     const x = worldPos.x + (Math.random() * 100 - 50); const y = worldPos.y + (Math.random() * 100 - 50);
+     const id = `new-${Date.now()}`;
+     let width = 256; let height = 160;
+     if (type === 'photo') height = 280; else if (type === 'dossier') height = 224; else if (type === 'scrap') { width = 257; height = 50; } else if (type === 'marker') { width = 30; height = 30; }
+     let content = 'New Clue';
+     if (type === 'photo') content = 'New Evidence'; else if (type === 'scrap') content = 'Scrap note...'; else if (type === 'marker') { const existingMarkers = notes.filter(n => n.type === 'marker'); content = (existingMarkers.length + 1).toString(); }
+     const newNote: Note = {
+        id, type, content, title: type === 'dossier' ? 'TOP SECRET' : undefined, subtitle: type === 'dossier' ? 'CASE FILE' : undefined,
+        x, y, zIndex: maxZIndex + 1, rotation: (Math.random() * 10) - 5, fileId: type === 'photo' ? '' : undefined, 
+        hasPin: false, scale: 1, width, height
+     };
+     const nextNotes = [...notes, newNote]; setMaxZIndex(prev => prev + 1); setNotes(nextNotes); setSelectedNodeId(id); saveToCloud(nextNotes, connections);
   };
   
   const clearBoard = async () => { 
       if(window.confirm("Burn all evidence?")) { 
           setNotes([]); setConnections([]); 
-          // 删库
-          await supabase.from('notes').delete().neq('id', '0'); // Delete all
+          await supabase.from('notes').delete().neq('id', '0'); 
           await supabase.from('connections').delete().neq('id', '0');
       } 
   };
   
-  // Drag Drop
+  const handleDoubleClick = (id: string) => { if (!isPinMode && !connectingNodeId) setEditingNodeId(id); };
+  const handleSaveNote = (updatedNote: Note) => { 
+      setNotes(prev => prev.map(n => n.id === updatedNote.id ? updatedNote : n)); 
+      setEditingNodeId(null); 
+      saveToCloud([updatedNote], []);
+  };
+  const getEditingNote = () => notes.find(n => n.id === editingNodeId);
+  const handleDragEnter = (e: React.DragEvent) => { e.preventDefault(); dragCounter.current += 1; if (e.dataTransfer.types.includes('Files')) setIsDraggingFile(true); };
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); dragCounter.current -= 1; if (dragCounter.current === 0) setIsDraggingFile(false); };
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); };
   const handleDrop = useCallback(async (e: React.DragEvent) => {
-    // ... (逻辑不变)
-    // 最终生成 loadedNotes
-    // saveToCloud(loadedNotes, []);
-  }, [maxZIndex, toWorld]); // 移除 notes 依赖
+    e.preventDefault(); setIsDraggingFile(false); dragCounter.current = 0;
+    const files = Array.from(e.dataTransfer.files) as File[]; const imageFiles = files.filter(file => file.type.startsWith('image/'));
+    if (imageFiles.length === 0) return;
+    let currentZ = maxZIndex;
+    const worldPos = toWorld(e.clientX, e.clientY);
+    const dropX = worldPos.x; const dropY = worldPos.y;
+    const promises = imageFiles.map(async (file, index) => {
+        const driveFileId = await uploadImage(file); if (!driveFileId) return null;
+        return new Promise<Note>((resolve) => {
+            const img = new Image(); img.src = driveFileId;
+            img.onload = () => {
+                const MAX_WIDTH = 300; let finalWidth = img.width; let finalHeight = img.height;
+                if (finalWidth > MAX_WIDTH) { const ratio = MAX_WIDTH / finalWidth; finalWidth = MAX_WIDTH; finalHeight = finalHeight * ratio; }
+                if (finalWidth < 50) finalWidth = 50; if (finalHeight < 50) finalHeight = 50;
+                currentZ++;
+                resolve({
+                    id: `evidence-${Date.now()}-${index}`, type: 'evidence', content: file.name, fileId: driveFileId, 
+                    x: dropX - (finalWidth / 2) + (index * 20), y: dropY - (finalHeight / 2) + (index * 20),
+                    zIndex: currentZ, rotation: (Math.random() * 10) - 5, hasPin: false, width: finalWidth, height: finalHeight, scale: 1
+                });
+            };
+        });
+    });
+    const loadedNotes = (await Promise.all(promises)).filter(n => n !== null) as Note[];
+    if (loadedNotes.length > 0) { const newMaxZ = currentZ; setMaxZIndex(newMaxZ); const nextNotes = [...notes, ...loadedNotes]; setNotes(nextNotes); setSelectedNodeId(loadedNotes[loadedNotes.length - 1].id); saveToCloud(nextNotes, connections); }
+  }, [maxZIndex, toWorld, notes, connections]);
 
+  useEffect(() => { const globalUp = () => handleMouseUp(); window.addEventListener('mouseup', globalUp); return () => window.removeEventListener('mouseup', globalUp); }, [isPanning, draggingId, rotatingId, resizingId, pinDragData, notes, connections]);
 
-  // --- Render (保持不变) ---
   return (
     <div 
       ref={boardRef}
@@ -475,8 +559,76 @@ const App: React.FC = () => {
         </div>
       )}
       
-      {/* ... (其余 UI 代码保持完全一致) ... */}
-      
+      {/* Hidden UI Mode Toast */}
+      <div className="absolute top-6 left-0 w-full flex justify-center z-[11000] pointer-events-none">
+          <div className="bg-black/70 backdrop-blur-md text-white/90 px-6 py-3 rounded-full border border-white/10 shadow-2xl flex items-center gap-3 transition-all duration-700 ease-in-out transform" style={{ opacity: showHiddenModeToast ? 1 : 0, transform: showHiddenModeToast ? 'translateY(0)' : 'translateY(-2rem)' }}>
+             <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
+             <span className="font-mono text-sm font-bold tracking-wide">PRESS ESC TO EXIT HIDDEN UI MODE</span>
+          </div>
+      </div>
+
+      {/* UI Controls: Left */}
+      {!isUIHidden && (
+        <div className="absolute top-4 left-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto">
+           <div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-float border border-white/10 max-w-sm">
+              <h1 className="text-xl font-bold font-handwriting mb-1 text-red-500">CASE #2023-X</h1>
+              <p className="text-xs text-gray-300 mb-4">
+                 {isPinMode ? (
+                   <span className="text-yellow-400 font-bold animate-pulse">PIN MODE ACTIVE</span>
+                 ) : (
+                   <span className="text-gray-400">Drag background to pan. Scroll to zoom.</span>
+                 )}
+              </p>
+              <div className="flex flex-col gap-2">
+                  <button onClick={() => setIsPinMode(!isPinMode)} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600'}`}>
+                    <MapPin size={16} /> {isPinMode ? 'DONE' : 'PIN TOOL'}
+                  </button>
+  
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                     <button onClick={() => addNote('note')} className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs">Add Note</button>
+                     <button onClick={() => addNote('photo')} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button>
+                     <button onClick={() => addNote('dossier')} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button>
+                     <button onClick={() => addNote('scrap')} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button>
+                     <button onClick={() => addNote('marker')} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button>
+                     <button onClick={clearBoard} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1">
+                        <Trash2 size={12}/> Clear
+                     </button>
+                  </div>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* UI Controls: Right */}
+      {!isUIHidden && (
+        <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto">
+            <div className="bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-float">
+                <button onClick={handleZoomIn} className="p-2 hover:bg-white/10 rounded-t-lg transition-colors"><Plus size={20} /></button>
+                <div className="text-xs font-mono py-1 w-12 text-center border-y border-white/10 select-none">{Math.round(view.zoom * 100)}%</div>
+                <button onClick={handleZoomOut} className="p-2 hover:bg-white/10 border-b border-white/10 transition-colors"><Minus size={20} /></button>
+                <button onClick={toggleMusic} className="p-2 hover:bg-white/10 rounded-b-lg transition-colors" title={isMusicPlaying ? "Mute Music" : "Play Music"}>{isMusicPlaying ? <Volume2 size={20} /> : <VolumeX size={20} />}</button>
+            </div>
+            <div className="bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-float">
+                <button onClick={handleResetView} className="p-2 hover:bg-white/10 rounded-t-lg border-b border-white/10 transition-colors" title="Reset View"><LocateFixed size={20} /></button>
+                <button onClick={() => { setIsUIHidden(true); setShowHiddenModeToast(true); }} className="p-2 hover:bg-white/10 rounded-b-lg transition-colors" title="Hide UI"><Maximize size={20} /></button>
+            </div>
+        </div>
+      )}
+
+      {connectingNodeId && !isUIHidden && (
+         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[9999] bg-red-600 text-white px-6 py-2 rounded-full shadow-xl animate-bounce font-bold pointer-events-none">
+            Connecting Evidence...
+         </div>
+      )}
+
+      {isDraggingFile && (
+         <div className="absolute inset-0 bg-black/60 z-[10000] flex items-center justify-center border-8 border-dashed border-gray-400 m-4 rounded-xl pointer-events-none">
+             <div className="bg-gray-800 text-white px-8 py-6 rounded-xl shadow-2xl flex flex-col items-center gap-4 animate-bounce">
+                 <UploadCloud size={64} className="text-blue-400"/><h2 className="text-2xl font-bold uppercase tracking-widest">Drop Evidence File</h2>
+             </div>
+         </div>
+      )}
+
       {/* Transform Layer */}
       <div className="absolute top-0 left-0 w-0 h-0 overflow-visible pointer-events-none" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, transformOrigin: '0 0' }}>
           {notes.map((note) => (
@@ -484,22 +636,53 @@ const App: React.FC = () => {
               key={note.id}
               note={note}
               onMouseDown={handleNodeMouseDown}
-              // ... props ...
+              onDoubleClick={handleDoubleClick}
+              isConnecting={!!connectingNodeId}
+              isSelectedForConnection={connectingNodeId === note.id}
+              isPinMode={isPinMode}
+              isSelected={selectedNodeId === note.id}
               onDelete={() => handleDeleteNote(note.id)}
+              onStartPin={() => handleStartPinFromCorner(note.id)}
               onResize={handleUpdateNodeSize}
-              // ...
+              onRotateStart={(e) => handleRotateStart(e, note.id)}
+              onResizeStart={(e, mode) => handleResizeStart(e, note.id, mode)}
             />
           ))}
+          
           <ConnectionLayer 
-             connections={connections} 
-             notes={notes}
-             // ... props ...
-             onDeleteConnection={handleDeleteConnection}
+            connections={connections} 
+            notes={notes}
+            connectingNodeId={connectingNodeId}
+            mousePos={mousePos}
+            onDeleteConnection={handleDeleteConnection}
+            onPinClick={handlePinClick} 
+            isPinMode={isPinMode}
+            onConnectionColorChange={handleUpdateConnectionColor}
+            onPinMouseDown={handlePinMouseDown}
           />
-          {/* Overlays ... */}
+
+          {draggingId && (() => {
+             const n = notes.find(i => i.id === draggingId);
+             if (!n) return null;
+             return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">X: {Math.round(n.x)}, Y: {Math.round(n.y)}</div></div>
+          })()}
+
+          {pinDragData && (() => {
+             const n = notes.find(i => i.id === pinDragData.noteId);
+             if (!n || !n.hasPin) return null;
+             const { width, height } = getNoteDimensions(n);
+             const cx = n.x + width / 2; const cy = n.y + height / 2; const px = n.pinX ?? width / 2; const py = n.pinY ?? 10; const dx = px - width / 2; const dy = py - height / 2; const rad = (n.rotation * Math.PI) / 180; const rDx = dx * Math.cos(rad) - dy * Math.sin(rad); const rDy = dx * Math.sin(rad) + dy * Math.cos(rad); const pinWorldX = cx + rDx; const pinWorldY = cy + rDy;
+             return <div style={{ position: 'absolute', left: pinWorldX, top: pinWorldY - 35, transform: 'translateX(-50%)' }} className="z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">X: {Math.round(n.pinX!)}, Y: {Math.round(n.pinY!)}</div></div>
+          })()}
       </div>
 
-      {editingNodeId && <EditModal note={notes.find(n => n.id === editingNodeId)!} onSave={handleSaveNote} onClose={() => setEditingNodeId(null)} />}
+      {editingNodeId && getEditingNote() && (
+        <EditModal 
+          note={getEditingNote()!} 
+          onSave={handleSaveNote} 
+          onClose={() => setEditingNodeId(null)} 
+        />
+      )}
     </div>
   );
 };
