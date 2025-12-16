@@ -54,6 +54,19 @@ export const INITIAL_NOTES: Note[] = [
     height: 50, // Changed default to 50
     scale: 1
   },
+  {
+    id: 'm1',
+    type: 'marker',
+    content: '1',
+    x: 60,
+    y: 60,
+    zIndex: 5,
+    rotation: 0,
+    hasPin: false,
+    width: 30,
+    height: 30,
+    scale: 1
+  },
 ];
 
 export const INITIAL_CONNECTIONS: Connection[] = [];

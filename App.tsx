@@ -7,7 +7,8 @@ import ConnectionLayer from './components/ConnectionLayer';
 import EditModal from './components/EditModal';
 import { Trash2, MapPin, UploadCloud, Plus, Minus, Volume2, VolumeX } from 'lucide-react';
 
-const CORK_URL = "data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h40v40H0V0zm20 20h20v20H20V20zM0 20h20v20H0V20zM20 0h20v20H20V0z' fill='%235c3a1e' fill-opacity='0.1' fill-rule='evenodd'/%3E%3C/svg%3E";
+// New Grid Pattern: 30x30, 0.7px border color #CAB9A1, 30% opacity
+const GRID_URL = "data:image/svg+xml,%3Csvg width='30' height='30' viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='30' height='30' fill='none' stroke='%23CAB9A1' stroke-width='0.7' opacity='0.3'/%3E%3C/svg%3E";
 
 type ResizeMode = 'CORNER' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM';
 
@@ -658,10 +659,13 @@ const App: React.FC = () => {
       ref={boardRef}
       className={`w-screen h-screen relative overflow-hidden select-none ${isPanning ? 'cursor-grabbing' : 'cursor-grab'}`}
       style={{
-          backgroundColor: '#8b5a2b',
-          backgroundImage: `url("${CORK_URL}")`,
-          backgroundPosition: `${view.x}px ${view.y}px`,
-          backgroundSize: `${40 * view.zoom}px ${40 * view.zoom}px`,
+          // Apply new Gradient Background and Grid Pattern
+          backgroundImage: `url("${GRID_URL}"), linear-gradient(180deg, #A38261 22.65%, #977049 100%)`,
+          backgroundPosition: `${view.x}px ${view.y}px, 0 0`,
+          // Ensure gradient covers the screen and grid scales with zoom (30px size)
+          backgroundSize: `${30 * view.zoom}px ${30 * view.zoom}px, 100% 100%`,
+          backgroundRepeat: 'repeat, no-repeat',
+          backgroundColor: '#A38261' // Fallback
       }}
       onWheel={handleWheel}
       onMouseDown={handleBackgroundMouseDown}
@@ -781,8 +785,6 @@ const App: React.FC = () => {
           onClose={() => setEditingNodeId(null)} 
         />
       )}
-
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_50%,rgba(0,0,0,0.6)_100%)] z-[9990]"></div>
     </div>
   );
 };
