@@ -46,13 +46,13 @@ const App: React.FC = () => {
   useEffect(() => { interactionRef.current = { draggingId, resizingId, rotatingId, pinDragData }; }, [draggingId, resizingId, rotatingId, pinDragData]);
   const toWorld = useCallback((screenX: number, screenY: number) => { return { x: (screenX - view.x) / view.zoom, y: (screenY - view.y) / view.zoom }; }, [view]);
 
-  // 🟢 1. 实时订阅 (已修复重复添加 Bug)
+  // 1. 实时订阅
   useEffect(() => {
     const fetchInitialData = async () => {
       const { data: notesData } = await supabase.from('notes').select('*');
       const { data: connsData } = await supabase.from('connections').select('*');
       if (notesData) {
-         // 去重：确保初始加载没有重复 ID
+         // 去重：防止 ID 冲突
          const uniqueNotes = Array.from(new Map(notesData.map((item: any) => [item.id, item])).values());
          setNotes(uniqueNotes as any);
          const maxZ = notesData.reduce((max: number, n: any) => Math.max(max, n.zIndex || 0), 10);
@@ -69,7 +69,6 @@ const App: React.FC = () => {
     const channel = supabase.channel('detective-wall-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, (payload) => {
           if (payload.eventType === 'INSERT') {
-             // 🟢 防重：如果本地已经有这个 ID，就不加了
              setNotes(prev => prev.some(n => n.id === payload.new.id) ? prev : [...prev, payload.new as Note]);
           } else if (payload.eventType === 'UPDATE') {
              const newNote = payload.new as Note;
@@ -82,7 +81,6 @@ const App: React.FC = () => {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'connections' }, (payload) => {
            if (payload.eventType === 'INSERT') {
-              // 🟢 防重：Connection 同理
               setConnections(prev => prev.some(c => c.id === payload.new.id) ? prev : [...prev, payload.new as Connection]);
            }
            else if (payload.eventType === 'UPDATE') { const newConn = payload.new as Connection; setConnections(prev => prev.map(c => c.id === newConn.id ? newConn : c)); }
@@ -101,6 +99,31 @@ const App: React.FC = () => {
       if (connId) await supabase.from('connections').delete().eq('id', connId);
   };
 
+  // 🟢 修复3：恢复平滑重置视图动画
+  const cancelAnimation = useCallback(() => { if (animationFrameRef.current) { cancelAnimationFrame(animationFrameRef.current); animationFrameRef.current = null; } }, []);
+  const handleResetView = () => {
+      const start = { ...view };
+      const end = { x: 0, y: 0, zoom: 1 };
+      if (start.x === 0 && start.y === 0 && start.zoom === 1) return;
+      const startTime = performance.now();
+      const duration = 1000;
+      const easeOutQuart = (x: number): number => 1 - Math.pow(1 - x, 4);
+      const animate = (time: number) => {
+          const elapsed = time - startTime;
+          const progress = Math.min(elapsed / duration, 1);
+          const ease = easeOutQuart(progress);
+          const newX = start.x + (end.x - start.x) * ease;
+          const newY = start.y + (end.y - start.y) * ease;
+          const newZoom = start.zoom + (end.zoom - start.zoom) * ease;
+          setView({ x: newX, y: newY, zoom: newZoom });
+          if (progress < 1) animationFrameRef.current = requestAnimationFrame(animate);
+          else animationFrameRef.current = null;
+      };
+      cancelAnimation();
+      animationFrameRef.current = requestAnimationFrame(animate);
+  };
+
+  // Paste & Drag Handlers
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
       const items = e.clipboardData?.items; if (!items) return;
@@ -145,14 +168,14 @@ const App: React.FC = () => {
   useEffect(() => { if (audioRef.current) { audioRef.current.volume = 0.5; audioRef.current.play().then(() => setIsMusicPlaying(true)).catch(() => setIsMusicPlaying(false)); } }, []);
   const toggleMusic = () => { if (!audioRef.current) return; if (isMusicPlaying) { audioRef.current.pause(); setIsMusicPlaying(false); } else { audioRef.current.play().then(() => setIsMusicPlaying(true)); } };
 
-  const cancelAnimation = useCallback(() => { if (animationFrameRef.current) { cancelAnimationFrame(animationFrameRef.current); animationFrameRef.current = null; } }, []);
-  const handleResetView = () => { setView({x:0, y:0, zoom:1}); }; 
+  // Handlers (Visual)
   const handleWheel = (e: React.WheelEvent) => { if (editingNodeId) return; cancelAnimation(); const delta = -e.deltaY * 0.001; const newZoom = Math.min(Math.max(0.1, view.zoom + delta), 3.0); const worldMouse = toWorld(e.clientX, e.clientY); setView({ x: e.clientX - worldMouse.x * newZoom, y: e.clientY - worldMouse.y * newZoom, zoom: newZoom }); };
   const handleBackgroundMouseDown = (e: React.MouseEvent) => { cancelAnimation(); if (e.button === 0 || e.button === 1) { if (e.button === 1) e.preventDefault(); setIsPanning(true); lastMousePosRef.current = { x: e.clientX, y: e.clientY }; } };
   const handleBackgroundClick = (e: React.MouseEvent) => { if (!isPanning && (e.target === boardRef.current)) { setConnectingNodeId(null); setSelectedNodeId(null); setIsPinMode(false); } };
   const handleZoomIn = () => setView(v => ({...v, zoom: Math.min(v.zoom + 0.2, 3)}));
   const handleZoomOut = () => setView(v => ({...v, zoom: Math.max(v.zoom - 0.2, 0.1)}));
 
+  // Handlers (Interaction)
   const handleRotateStart = (e: React.MouseEvent, id: string) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if(!note) return; setRotatingId(id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth:0, initialHeight:0, initialX:0, initialY:0, initialScale:1 }); };
   const handleResizeStart = (e: React.MouseEvent, id: string, mode: ResizeMode) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if(!note) return; const dims = getNoteDimensions(note); setResizingId(id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth: dims.width, initialHeight: dims.height, initialX: note.x, initialY: note.y, initialScale: note.scale || 1, resizeMode: mode }); };
   const handlePinMouseDown = (e: React.MouseEvent, id: string) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if (!note) return; const { width, height } = getNoteDimensions(note); isPinDragRef.current = false; setPinDragData({ noteId: id, startX: e.clientX, startY: e.clientY, initialPinX: note.pinX ?? width / 2, initialPinY: note.pinY ?? 10, rotation: note.rotation, width, height }); };
@@ -227,7 +250,33 @@ const App: React.FC = () => {
   const handleUpdateConnectionColor = (id: string, color: string) => { const nextConns = connections.map(c => c.id === id ? { ...c, color } : c); setConnections(nextConns); saveToCloud(notes, nextConns); };
   const handleDeleteNote = (id: string) => { const nextNotes = notes.filter(n => n.id !== id); const nextConns = connections.filter(c => c.sourceId !== id && c.targetId !== id); setNotes(nextNotes); setConnections(nextConns); setSelectedNodeId(null); deleteFromCloud(id); const relatedConns = connections.filter(c => c.sourceId === id || c.targetId === id); relatedConns.forEach(c => deleteFromCloud(undefined, c.id)); };
   const handleStartPinFromCorner = (id: string) => setIsPinMode(true);
-  const addNote = (type: Note['type']) => { const centerX = window.innerWidth / 2; const centerY = window.innerHeight / 2; const worldPos = toWorld(centerX, centerY); const x = worldPos.x + (Math.random() * 100 - 50); const y = worldPos.y + (Math.random() * 100 - 50); const id = `new-${Date.now()}`; let width = 256; let height = 160; if (type === 'photo') height = 280; else if (type === 'dossier') height = 224; else if (type === 'scrap') { width = 257; height = 50; } else if (type === 'marker') { width = 30; height = 30; } let content = 'New Clue'; if (type === 'photo') content = 'New Evidence'; const newNote: Note = { id, type, content, x, y, zIndex: maxZIndex + 1, rotation: (Math.random() * 10) - 5, fileId: type === 'photo' ? '' : undefined, hasPin: false, scale: 1, width, height }; const nextNotes = [...notes, newNote]; setMaxZIndex(prev => prev + 1); setNotes(nextNotes); setSelectedNodeId(id); saveToCloud(nextNotes, connections); };
+  
+  const addNote = (type: Note['type']) => {
+     const centerX = window.innerWidth / 2; const centerY = window.innerHeight / 2;
+     const worldPos = toWorld(centerX, centerY);
+     const x = worldPos.x + (Math.random() * 100 - 50); const y = worldPos.y + (Math.random() * 100 - 50);
+     const id = `new-${Date.now()}`;
+     let width = 256; let height = 160;
+     if (type === 'photo') height = 280; else if (type === 'dossier') height = 224; else if (type === 'scrap') { width = 257; height = 50; } else if (type === 'marker') { width = 30; height = 30; }
+     let content = 'New Clue';
+     if (type === 'photo') content = 'New Evidence'; else if (type === 'scrap') content = 'Scrap note...';
+     
+     // 🟢 修复2：恢复 Marker 数字逻辑
+     else if (type === 'marker') {
+         const existingMarkers = notes.filter(n => n.type === 'marker');
+         content = (existingMarkers.length + 1).toString();
+     }
+
+     const newNote: Note = {
+        id, type, content, title: type === 'dossier' ? 'TOP SECRET' : undefined, subtitle: type === 'dossier' ? 'CASE FILE' : undefined,
+        x, y, zIndex: maxZIndex + 1, rotation: (Math.random() * 10) - 5, 
+        // 🟢 修复1：恢复图片默认图逻辑
+        fileId: type === 'photo' ? '/photo_1.png' : undefined, 
+        hasPin: false, scale: 1, width, height
+     };
+     const nextNotes = [...notes, newNote]; setMaxZIndex(prev => prev + 1); setNotes(nextNotes); setSelectedNodeId(id); saveToCloud(nextNotes, connections);
+  };
+  
   const clearBoard = async () => { if(window.confirm("Burn all evidence?")) { setNotes([]); setConnections([]); await supabase.from('notes').delete().neq('id', '0'); await supabase.from('connections').delete().neq('id', '0'); } };
   const handleDoubleClick = (id: string) => { if (!isPinMode && !connectingNodeId) setEditingNodeId(id); };
   const handleSaveNote = (updatedNote: Note) => { setNotes(prev => prev.map(n => n.id === updatedNote.id ? updatedNote : n)); setEditingNodeId(null); saveToCloud([updatedNote], []); };
@@ -250,10 +299,12 @@ const App: React.FC = () => {
       <audio ref={audioRef} src="/home_bgm.mp3" loop />
       {isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-3 bg-black/70 backdrop-blur-md text-white/90 px-4 py-2 rounded-full border border-white/10 shadow-lg pointer-events-none"><Loader2 className="animate-spin text-yellow-400" size={16} /><span className="font-mono text-xs tracking-wider">SYNCING...</span></div>}
       {!isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-2 pointer-events-none opacity-50 hover:opacity-100 transition-opacity"><div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" /><span className="font-mono text-[10px] text-white/70 tracking-widest">SECURE CONN.</span></div>}
+      
       {!isUIHidden && <div className="absolute top-4 left-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto"><div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-float border border-white/10 max-w-sm"><h1 className="text-xl font-bold font-handwriting mb-1 text-red-500">CASE #2023-X</h1><div className="flex flex-col gap-2"><button onClick={() => setIsPinMode(!isPinMode)} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600'}`}><MapPin size={16} /> {isPinMode ? 'DONE' : 'PIN TOOL'}</button><div className="grid grid-cols-2 gap-2 mt-2"><button onClick={() => addNote('note')} className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs">Add Note</button><button onClick={() => addNote('photo')} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button><button onClick={() => addNote('dossier')} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button><button onClick={() => addNote('scrap')} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button><button onClick={() => addNote('marker')} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button><button onClick={clearBoard} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1"><Trash2 size={12}/> Clear</button></div></div></div></div>}
       {!isUIHidden && <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto"><div className="bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-float"><button onClick={handleZoomIn} className="p-2 hover:bg-white/10 rounded-t-lg transition-colors"><Plus size={20} /></button><div className="text-xs font-mono py-1 w-12 text-center border-y border-white/10 select-none">{Math.round(view.zoom * 100)}%</div><button onClick={handleZoomOut} className="p-2 hover:bg-white/10 border-b border-white/10 transition-colors"><Minus size={20} /></button><button onClick={toggleMusic} className="p-2 hover:bg-white/10 rounded-b-lg transition-colors" title={isMusicPlaying ? "Mute Music" : "Play Music"}>{isMusicPlaying ? <Volume2 size={20} /> : <VolumeX size={20} />}</button></div><div className="bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-float"><button onClick={handleResetView} className="p-2 hover:bg-white/10 rounded-t-lg border-b border-white/10 transition-colors" title="Reset View"><LocateFixed size={20} /></button><button onClick={() => { setIsUIHidden(true); setShowHiddenModeToast(true); }} className="p-2 hover:bg-white/10 rounded-b-lg transition-colors" title="Hide UI"><Maximize size={20} /></button></div></div>}
       {connectingNodeId && !isUIHidden && <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[9999] bg-red-600 text-white px-6 py-2 rounded-full shadow-xl animate-bounce font-bold pointer-events-none">Connecting Evidence...</div>}
       {isDraggingFile && <div className="absolute inset-0 bg-black/60 z-[10000] flex items-center justify-center border-8 border-dashed border-gray-400 m-4 rounded-xl pointer-events-none"><div className="bg-gray-800 text-white px-8 py-6 rounded-xl shadow-2xl flex flex-col items-center gap-4 animate-bounce"><UploadCloud size={64} className="text-blue-400"/><h2 className="text-2xl font-bold uppercase tracking-widest">Drop Evidence File</h2></div></div>}
+
       <div className="absolute top-0 left-0 w-0 h-0 overflow-visible pointer-events-none" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, transformOrigin: '0 0' }}>
           {notes.map((note) => <DetectiveNode key={note.id} note={note} onMouseDown={handleNodeMouseDown} onDoubleClick={handleDoubleClick} isConnecting={!!connectingNodeId} isSelectedForConnection={connectingNodeId === note.id} isPinMode={isPinMode} isSelected={selectedNodeId === note.id} onDelete={() => handleDeleteNote(note.id)} onStartPin={() => handleStartPinFromCorner(note.id)} onResize={handleUpdateNodeSize} onRotateStart={(e) => handleRotateStart(e, note.id)} onResizeStart={(e, mode) => handleResizeStart(e, note.id, mode)} />)}
           <ConnectionLayer connections={connections} notes={notes} connectingNodeId={connectingNodeId} mousePos={mousePos} onDeleteConnection={handleDeleteConnection} onPinClick={handlePinClick} isPinMode={isPinMode} onConnectionColorChange={handleUpdateConnectionColor} onPinMouseDown={handlePinMouseDown} />
