@@ -196,51 +196,49 @@ const App: React.FC = () => {
   };
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // 🟢 框选逻辑 (最终修复版：使用 getBoundingClientRect 进行视觉碰撞检测)
+    // 🟢 框选逻辑 (Screen Space Intersection)
+    // 只要屏幕上的虚线框碰到了屏幕上的卡片，就算选中。
     if (selectionBox) {
         const currentX = e.clientX; 
         const currentY = e.clientY;
         setSelectionBox(prev => prev ? ({ ...prev, currentX, currentY }) : null);
 
-        // 1. 获取选框在屏幕上的绝对矩形区域 (Pixel Space)
-        const selLeft = Math.min(selectionBox.startX, currentX);
-        const selRight = Math.max(selectionBox.startX, currentX);
-        const selTop = Math.min(selectionBox.startY, currentY);
-        const selBottom = Math.max(selectionBox.startY, currentY);
+        // 1. 获取选框在屏幕上的绝对矩形区域 (像素坐标)
+        const boxLeft = Math.min(selectionBox.startX, currentX);
+        const boxRight = Math.max(selectionBox.startX, currentX);
+        const boxTop = Math.min(selectionBox.startY, currentY);
+        const boxBottom = Math.max(selectionBox.startY, currentY);
 
         const newSelected = new Set<string>();
 
-        // 2. 遍历所有笔记，直接检查 DOM 元素的位置
+        // 2. 遍历所有笔记，将它们投影到屏幕坐标进行碰撞检测
         notes.forEach(note => {
-            // 注意：这依赖于 DetectiveNode 组件设置了 id={note.id} 在 DOM 元素上
-            const element = document.getElementById(note.id);
-            
-            if (element) {
-                // 🔥 核心：获取元素在屏幕上的真实视觉边界（包含缩放、旋转）
-                const rect = element.getBoundingClientRect();
-                
-                // 3. 碰撞检测：只要两个矩形有重叠，就算选中
-                // 逻辑是：如果不在左侧 且 不在右侧 且 不在上方 且 不在下方，那就是重叠了
-                const isMissed = 
-                    rect.left > selRight || 
-                    rect.right < selLeft || 
-                    rect.top > selBottom || 
-                    rect.bottom < selTop;
+            // 获取尺寸：优先使用 getNoteDimensions，如果没有则使用默认值
+            // 我们需要卡片的"逻辑宽度"（未缩放时的宽度）
+            const dims = getNoteDimensions(note);
+            // 默认宽高防守，避免 crash
+            const baseW = dims.width || note.width || 200;
+            const baseH = dims.height || note.height || 200;
+            // 考虑卡片的缩放 (scale)
+            const scale = note.scale || 1;
 
-                if (!isMissed) {
-                    newSelected.add(note.id);
-                }
-            } else {
-                // 如果找不到 DOM 元素 (例如组件没设置 ID)，回退到简单的数学计算防止报错，但体验稍差
-                const dims = getNoteDimensions(note);
-                const scale = note.scale || 1;
-                const noteScreenX = (note.x * view.zoom) + view.x;
-                const noteScreenY = (note.y * view.zoom) + view.y;
-                const noteW = (dims.width * scale) * view.zoom;
-                const noteH = (dims.height * scale) * view.zoom;
-                if (!(noteScreenX > selRight || noteScreenX + noteW < selLeft || noteScreenY > selBottom || noteScreenY + noteH < selTop)) {
-                    newSelected.add(note.id);
-                }
+            // 3. 计算卡片在屏幕上的实际位置和大小
+            // 公式：屏幕坐标 = 世界坐标 * 缩放 + 偏移
+            const screenX = note.x * view.zoom + view.x;
+            const screenY = note.y * view.zoom + view.y;
+            const screenW = baseW * scale * view.zoom;
+            const screenH = baseH * scale * view.zoom;
+
+            // 4. 碰撞判定 (Intersection Check)
+            // 只要不是完全错过，就是相交
+            const isMissed = 
+                (screenX + screenW) < boxLeft ||  // 卡片完全在选框左边
+                screenX > boxRight ||             // 卡片完全在选框右边
+                (screenY + screenH) < boxTop ||   // 卡片完全在选框上边
+                screenY > boxBottom;              // 卡片完全在选框下边
+
+            if (!isMissed) {
+                newSelected.add(note.id);
             }
         });
 
@@ -327,8 +325,6 @@ const App: React.FC = () => {
           {notes.map((note) => (
             <DetectiveNode
               key={note.id}
-              // 🟢 我在这里显式传递了 id={note.id}，确保 getElementById 能找到它
-              id={note.id} 
               note={note}
               onMouseDown={handleNodeMouseDown}
               onDoubleClick={handleDoubleClick}
