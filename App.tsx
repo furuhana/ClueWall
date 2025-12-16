@@ -75,6 +75,83 @@ const App: React.FC = () => {
     };
   }, [view]);
 
+  // --- Paste Handler ---
+  useEffect(() => {
+    const handlePaste = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      const imageFiles: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          const file = items[i].getAsFile();
+          if (file) imageFiles.push(file);
+        }
+      }
+
+      if (imageFiles.length === 0) return;
+      e.preventDefault();
+
+      const centerX = window.innerWidth / 2;
+      const centerY = window.innerHeight / 2;
+      const worldPos = toWorld(centerX, centerY);
+      
+      let currentZ = maxZIndex;
+      
+      const promises = imageFiles.map((file, index) => {
+        return new Promise<Note>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const result = event.target?.result as string;
+                const img = new Image();
+                img.src = result;
+                img.onload = () => {
+                    const MAX_WIDTH = 300;
+                    let finalWidth = img.width;
+                    let finalHeight = img.height;
+                    
+                    if (finalWidth > MAX_WIDTH) {
+                        const ratio = MAX_WIDTH / finalWidth;
+                        finalWidth = MAX_WIDTH;
+                        finalHeight = finalHeight * ratio;
+                    }
+                    if (finalWidth < 50) finalWidth = 50;
+                    if (finalHeight < 50) finalHeight = 50;
+                    
+                    currentZ++;
+                    resolve({
+                        id: `pasted-${Date.now()}-${index}-${Math.random()}`,
+                        type: 'evidence',
+                        content: 'Pasted Image',
+                        fileId: result,
+                        x: worldPos.x - (finalWidth / 2) + (index * 20),
+                        y: worldPos.y - (finalHeight / 2) + (index * 20),
+                        zIndex: currentZ,
+                        rotation: (Math.random() * 10) - 5,
+                        hasPin: false,
+                        width: finalWidth,
+                        height: finalHeight,
+                        scale: 1
+                    });
+                };
+            };
+            reader.readAsDataURL(file);
+        });
+      });
+
+      const loadedNotes = await Promise.all(promises);
+      if (loadedNotes.length > 0) {
+         setMaxZIndex(prev => prev + loadedNotes.length);
+         setNotes(prev => [...prev, ...loadedNotes]);
+         setSelectedNodeId(loadedNotes[loadedNotes.length - 1].id);
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [maxZIndex, toWorld]);
+
+
   // --- Synchronize Dimensions ---
   const handleUpdateNodeSize = (id: string, width: number, height: number) => {
       // Prevent loop if we are currently resizing via user interaction
@@ -274,6 +351,32 @@ const App: React.FC = () => {
 
     const newZ = maxZIndex + 1;
     setMaxZIndex(newZ);
+
+    // FEATURE: Duplicate on Alt + Drag
+    if (e.altKey) {
+         const newId = `dup-${Date.now()}-${Math.random()}`;
+         const duplicatedNote: Note = {
+             ...targetNote,
+             id: newId,
+             zIndex: newZ,
+             x: targetNote.x, 
+             y: targetNote.y,
+             hasPin: false, // New copies shouldn't have pins/connections yet
+             title: targetNote.title ? `${targetNote.title} (Copy)` : undefined,
+         };
+         
+         setNotes(prev => [...prev, duplicatedNote]);
+         setDraggingId(newId); // Start dragging the new copy
+         setSelectedNodeId(newId);
+         
+         setDragOffset({
+            x: worldMouse.x - targetNote.x,
+            y: worldMouse.y - targetNote.y,
+         });
+         return;
+    }
+
+    // Normal Drag
     setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, zIndex: newZ } : n)));
     setDraggingId(id);
     setDragOffset({
