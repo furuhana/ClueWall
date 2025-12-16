@@ -196,46 +196,47 @@ const App: React.FC = () => {
   };
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // 🟢 框选逻辑 (Screen Space Intersection)
-    // 只要屏幕上的虚线框碰到了屏幕上的卡片，就算选中。
+    // 🟢 框选逻辑 (世界坐标对齐版 - 终极修复)
     if (selectionBox) {
         const currentX = e.clientX; 
         const currentY = e.clientY;
         setSelectionBox(prev => prev ? ({ ...prev, currentX, currentY }) : null);
 
-        // 1. 获取选框在屏幕上的绝对矩形区域 (像素坐标)
-        const boxLeft = Math.min(selectionBox.startX, currentX);
-        const boxRight = Math.max(selectionBox.startX, currentX);
-        const boxTop = Math.min(selectionBox.startY, currentY);
-        const boxBottom = Math.max(selectionBox.startY, currentY);
+        // 1. 获取屏幕上选框的像素范围
+        const screenBoxLeft = Math.min(selectionBox.startX, currentX);
+        const screenBoxRight = Math.max(selectionBox.startX, currentX);
+        const screenBoxTop = Math.min(selectionBox.startY, currentY);
+        const screenBoxBottom = Math.max(selectionBox.startY, currentY);
+
+        // 2. 将屏幕选框 转换到 世界坐标 (World Space)
+        // 这一步至关重要：把你的蓝色框框“投影”到游戏地图里去
+        const worldBoxLeft = (screenBoxLeft - view.x) / view.zoom;
+        const worldBoxRight = (screenBoxRight - view.x) / view.zoom;
+        const worldBoxTop = (screenBoxTop - view.y) / view.zoom;
+        const worldBoxBottom = (screenBoxBottom - view.y) / view.zoom;
 
         const newSelected = new Set<string>();
 
-        // 2. 遍历所有笔记，将它们投影到屏幕坐标进行碰撞检测
         notes.forEach(note => {
-            // 获取尺寸：优先使用 getNoteDimensions，如果没有则使用默认值
-            // 我们需要卡片的"逻辑宽度"（未缩放时的宽度）
+            // 3. 获取卡片在世界坐标里的真实体积
             const dims = getNoteDimensions(note);
-            // 默认宽高防守，避免 crash
-            const baseW = dims.width || note.width || 200;
-            const baseH = dims.height || note.height || 200;
-            // 考虑卡片的缩放 (scale)
-            const scale = note.scale || 1;
+            // 防御性编码：如果没取到宽，默认给个200，确保能被点到
+            const width = (dims.width || note.width || 200) * (note.scale || 1);
+            const height = (dims.height || note.height || 200) * (note.scale || 1);
 
-            // 3. 计算卡片在屏幕上的实际位置和大小
-            // 公式：屏幕坐标 = 世界坐标 * 缩放 + 偏移
-            const screenX = note.x * view.zoom + view.x;
-            const screenY = note.y * view.zoom + view.y;
-            const screenW = baseW * scale * view.zoom;
-            const screenH = baseH * scale * view.zoom;
+            const noteLeft = note.x;
+            const noteRight = note.x + width;
+            const noteTop = note.y;
+            const noteBottom = note.y + height;
 
-            // 4. 碰撞判定 (Intersection Check)
-            // 只要不是完全错过，就是相交
+            // 4. 碰撞判定 (AABB Intersection)
+            // 只要这两个世界坐标系里的矩形碰到了，就算选中
+            // 逻辑：只要不是完全在左边、右边、上边、下边，那就是重叠了
             const isMissed = 
-                (screenX + screenW) < boxLeft ||  // 卡片完全在选框左边
-                screenX > boxRight ||             // 卡片完全在选框右边
-                (screenY + screenH) < boxTop ||   // 卡片完全在选框上边
-                screenY > boxBottom;              // 卡片完全在选框下边
+                noteLeft > worldBoxRight || 
+                noteRight < worldBoxLeft || 
+                noteTop > worldBoxBottom || 
+                noteBottom < worldBoxTop;
 
             if (!isMissed) {
                 newSelected.add(note.id);
@@ -332,7 +333,7 @@ const App: React.FC = () => {
               isSelectedForConnection={connectingNodeId === note.id}
               isPinMode={isPinMode}
               isSelected={selectedIds.has(note.id)}
-              isMultiSelected={selectedIds.size > 1} 
+              isMultiSelected={selectedIds.size > 1} // 🟢 传给子组件
               onDelete={() => handleDeleteNote(note.id)}
               onStartPin={() => handleStartPinFromCorner(note.id)}
               onResize={handleUpdateNodeSize}
