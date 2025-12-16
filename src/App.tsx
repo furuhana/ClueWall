@@ -196,58 +196,48 @@ const App: React.FC = () => {
   };
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // 🟢 框选逻辑 (使用屏幕空间 Screen Space 判定，更直观准确)
-    if (selectionBox) {
-        const currentX = e.clientX; 
-        const currentY = e.clientY;
-        setSelectionBox(prev => prev ? ({ ...prev, currentX, currentY }) : null);
 
-        // 1. 获取选框的 屏幕坐标 (Pixels)
-        const selLeft = Math.min(selectionBox.startX, currentX);
-        const selRight = Math.max(selectionBox.startX, currentX);
-        const selTop = Math.min(selectionBox.startY, currentY);
-        const selBottom = Math.max(selectionBox.startY, currentY);
+// 🟢 框选逻辑 (最终版：DOM 视觉碰撞检测)
+if (selectionBox) {
+    const currentX = e.clientX; 
+    const currentY = e.clientY;
+    setSelectionBox(prev => prev ? ({ ...prev, currentX, currentY }) : null);
 
-        const newSelected = new Set<string>();
+    // 1. 获取选框在屏幕上的绝对矩形区域
+    const selLeft = Math.min(selectionBox.startX, currentX);
+    const selRight = Math.max(selectionBox.startX, currentX);
+    const selTop = Math.min(selectionBox.startY, currentY);
+    const selBottom = Math.max(selectionBox.startY, currentY);
+
+    const newSelected = new Set<string>();
+
+    // 2. 遍历所有笔记，直接问浏览器它们在哪里
+    notes.forEach(note => {
+        // 获取该笔记对应的 DOM 元素
+        const element = document.getElementById(note.id);
         
-        notes.forEach(note => {
-            const dims = getNoteDimensions(note);
-            // 确保如果有 note.scale，我们计算碰撞体积时也把它算进去
-            // 如果 scale 未定义，默认为 1
-            const scale = note.scale || 1;
-            const logicalWidth = dims.width || 200;
-            const logicalHeight = dims.height || 200;
-
-            // 2. 将 Note 的 World 坐标转换回 Screen 坐标 (所见即所得)
-            // 公式：Screen = World * Zoom + Pan
-            const noteScreenX = (note.x * view.zoom) + view.x;
-            const noteScreenY = (note.y * view.zoom) + view.y;
-            const noteScreenWidth = logicalWidth * scale * view.zoom;
-            const noteScreenHeight = logicalHeight * scale * view.zoom;
-
-            // 3. 计算 Note 的屏幕边界
-            const noteLeft = noteScreenX;
-            const noteRight = noteScreenX + noteScreenWidth;
-            const noteTop = noteScreenY;
-            const noteBottom = noteScreenY + noteScreenHeight;
-
-            // 4. 碰撞判定 (Intersection) - 只要不相离，就是相交
-            // 添加 5px 的容错 Buffer，让选中手感更好（稍微碰到一点点也算）
-            const buffer = 5; 
-
+        if (element) {
+            // 🔥 核心：获取元素经过缩放、旋转后的真实视觉边界
+            const rect = element.getBoundingClientRect();
+            
+            // 3. 碰撞检测：排除掉完全不相交的情况
+            // 只要不是(在左边 OR 在右边 OR 在上边 OR 在下边)，那就是撞上了
             const isMissed = 
-                noteLeft > (selRight + buffer) || 
-                noteRight < (selLeft - buffer) || 
-                noteTop > (selBottom + buffer) || 
-                noteBottom < (selTop - buffer);
+                rect.left > selRight || 
+                rect.right < selLeft || 
+                rect.top > selBottom || 
+                rect.bottom < selTop;
 
             if (!isMissed) {
                 newSelected.add(note.id);
             }
-        });
-        setSelectedIds(newSelected);
-        return;
-    }
+        }
+    });
+
+    setSelectedIds(newSelected);
+    return;
+}
+
 
     if (draggingId && lastDragPosRef.current) {
         const dx = (e.clientX - lastDragPosRef.current.x) / view.zoom;
