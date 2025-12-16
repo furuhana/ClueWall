@@ -6,10 +6,10 @@ export const INITIAL_NOTES: Note[] = [
     type: 'photo',
     content: 'Suspect spotted leaving the scene.',
     fileId: '/photo_1.png',
-    x: 500, // Moved to center top
-    y: 80,
+    x: 400,
+    y: 50,
     zIndex: 1,
-    rotation: -5,
+    rotation: -3,
     hasPin: false,
     width: 256,
     height: 280,
@@ -19,8 +19,8 @@ export const INITIAL_NOTES: Note[] = [
     id: 'n2',
     type: 'dossier',
     content: 'CONFIDENTIAL: Project Blue Book',
-    x: 100,
-    y: 600, // Bottom Left
+    x: 150,
+    y: 350,
     zIndex: 2,
     rotation: 2,
     hasPin: false,
@@ -32,11 +32,11 @@ export const INITIAL_NOTES: Note[] = [
     id: 'n3',
     type: 'note',
     content: 'Call the precinct at 0800 hours. Don\'t trust the rookie.',
-    x: 100, // Top Left
+    x: 100,
     y: 100,
     zIndex: 3,
-    rotation: 4,
-    hasPin: true, // Has Pin
+    rotation: 5,
+    hasPin: true,
     width: 256,
     height: 160,
     scale: 1
@@ -45,10 +45,10 @@ export const INITIAL_NOTES: Note[] = [
     id: 'n4',
     type: 'scrap',
     content: '...found on 4th street...',
-    x: 700,
-    y: 350,
+    x: 480,
+    y: 400,
     zIndex: 4,
-    rotation: -10,
+    rotation: -8,
     hasPin: false,
     width: 257,
     height: 50,
@@ -58,11 +58,11 @@ export const INITIAL_NOTES: Note[] = [
     id: 'm1',
     type: 'marker',
     content: '1',
-    x: 900, // Bottom Right
-    y: 650,
+    x: 650,
+    y: 150,
     zIndex: 5,
     rotation: 0,
-    hasPin: true, // Has Pin
+    hasPin: true,
     width: 30,
     height: 30,
     scale: 1
@@ -72,8 +72,8 @@ export const INITIAL_NOTES: Note[] = [
 export const INITIAL_CONNECTIONS: Connection[] = [
   {
     id: 'conn-1',
-    sourceId: 'n3', // Note (Top Left)
-    targetId: 'm1', // Marker (Bottom Right)
+    sourceId: 'n3',
+    targetId: 'm1',
     color: '#D43939' // Red
   }
 ];
