@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Note, Connection, DragOffset } from './types';
-import { INITIAL_NOTES, INITIAL_CONNECTIONS } from './constants'; // 仅作为兜底数据
+import { INITIAL_NOTES, INITIAL_CONNECTIONS } from './constants'; 
 import { getNoteDimensions } from './utils';
 import DetectiveNode from './components/DetectiveNode';
 import ConnectionLayer from './components/ConnectionLayer';
 import EditModal from './components/EditModal';
 import { Trash2, MapPin, UploadCloud, Plus, Minus, Volume2, VolumeX, LocateFixed, Maximize, Loader2 } from 'lucide-react';
-import { fetchBoardData, saveBoardData, uploadImage } from './api'; // 🟢 引入 API
+import { fetchBoardData, saveBoardData, uploadImage } from './api';
 
 // New Grid Pattern
 const GRID_URL = "data:image/svg+xml,%3Csvg width='30' height='30' viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='30' height='30' fill='none' stroke='%23CAB9A1' stroke-width='0.7' opacity='0.3'/%3E%3C/svg%3E";
@@ -37,10 +37,10 @@ interface PinDragData {
 }
 
 const App: React.FC = () => {
-  // 🟢 State: 初始化为空，等待从 API 加载
+  // State: 初始化为空，等待从 API 加载
   const [notes, setNotes] = useState<Note[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [isLoading, setIsLoading] = useState(true); // 🟢 加载状态
+  const [isLoading, setIsLoading] = useState(true);
 
   // --- Viewport State (Pan & Zoom) ---
   const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
@@ -74,7 +74,7 @@ const App: React.FC = () => {
 
   // State for Tools
   const [isPinMode, setIsPinMode] = useState<boolean>(false);
-  const [isUIHidden, setIsUIHidden] = useState<boolean>(true); // Default hidden
+  const [isUIHidden, setIsUIHidden] = useState<boolean>(true); 
   const [showHiddenModeToast, setShowHiddenModeToast] = useState(false);
 
   // State for File Dragging
@@ -88,6 +88,15 @@ const App: React.FC = () => {
   // Refs
   const boardRef = useRef<HTMLDivElement>(null);
 
+  // 🔴 新增：创建一个 Ref 来实时记录当前是否正在进行关键操作
+  // 用于在轮询更新时判断是否跳过刷新，避免打断用户操作
+  const isInteractingRef = useRef(false);
+
+  // 🔴 新增：同步交互状态到 Ref
+  useEffect(() => {
+    isInteractingRef.current = !!(draggingId || resizingId || rotatingId || pinDragData || connectingNodeId || editingNodeId || isDraggingFile || isPanning);
+  }, [draggingId, resizingId, rotatingId, pinDragData, connectingNodeId, editingNodeId, isDraggingFile, isPanning]);
+
   // --- Helpers: Coordinate System ---
   const toWorld = useCallback((screenX: number, screenY: number) => {
     return {
@@ -96,44 +105,66 @@ const App: React.FC = () => {
     };
   }, [view]);
 
-  // 🟢 1. 数据加载 Effect
+  // 🟢 修改后的数据加载 Effect (包含轮询逻辑)
   useEffect(() => {
-    const loadData = async () => {
-        setIsLoading(true);
+    let intervalId: NodeJS.Timeout;
+
+    const loadData = async (isBackgroundRefresh = false) => {
+      // 如果是后台静默刷新，且用户正在操作，则跳过这次刷新
+      if (isBackgroundRefresh && isInteractingRef.current) {
+        // console.log("User is interacting, skipping background refresh...");
+        return;
+      }
+
+      if (!isBackgroundRefresh) setIsLoading(true); // 只有首次加载显示 Loading
+
+      try {
         const data = await fetchBoardData();
         
         if (data && data.status === "success") {
-            // 如果有数据，使用 API 数据
-            setNotes(data.notes);
-            setConnections(data.connections);
-            
-            // 计算最大 Z-Index 以防重叠
-            const maxZ = data.notes.reduce((max: number, n: Note) => Math.max(max, n.zIndex || 0), 10);
-            setMaxZIndex(maxZ);
-
-            // 简单的居中逻辑 (可选: 可以根据数据计算包围盒)
-            if (data.notes.length > 0) {
-               // 保持默认 view 或根据第一个笔记位置微调
-            }
+           // 双重检查：只有当用户没有在操作时，才更新数据
+           if (!isInteractingRef.current) {
+               setNotes(data.notes);
+               setConnections(data.connections);
+               
+               // 首次加载时计算 Z-Index
+               if (!isBackgroundRefresh) {
+                  const maxZ = data.notes.reduce((max: number, n: Note) => Math.max(max, n.zIndex || 0), 10);
+                  setMaxZIndex(maxZ);
+               }
+           }
         } else {
-            // 兜底：如果没有数据或 API 失败，使用本地初始数据
-            console.log("Using local fallback data");
-            setNotes(INITIAL_NOTES);
-            setConnections(INITIAL_CONNECTIONS);
+           if (!isBackgroundRefresh) {
+             console.log("Using local fallback data");
+             setNotes(INITIAL_NOTES);
+             setConnections(INITIAL_CONNECTIONS);
+           }
         }
-        setIsLoading(false);
+      } catch (error) {
+         console.error("Refresh failed", error);
+      } finally {
+         if (!isBackgroundRefresh) setIsLoading(false);
+      }
     };
-    loadData();
-  }, []);
 
-  // 🟢 2. 保存辅助函数
-  // 我们不需要每次渲染都保存，而是在关键操作结束后手动调用此函数
+    // 1. 立即执行一次首次加载
+    loadData(false);
+
+    // 2. 设置定时器，每 5 秒轮询一次
+    intervalId = setInterval(() => {
+      loadData(true);
+    }, 5000); 
+
+    // 清理函数：组件卸载时停止轮询
+    return () => clearInterval(intervalId);
+  }, []); 
+
+  // 保存辅助函数
   const saveToCloud = (currentNotes: Note[], currentConnections: Connection[]) => {
-      // 可以在这里加一个防抖，但在 handleMouseUp 调用通常足够了
       saveBoardData(currentNotes, currentConnections);
   };
 
-  // --- Paste Handler (Modified for API Upload) ---
+  // --- Paste Handler ---
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
       const items = e.clipboardData?.items;
@@ -156,16 +187,12 @@ const App: React.FC = () => {
       
       let currentZ = maxZIndex;
       
-      // 🟢 并行上传并创建笔记
       const promises = imageFiles.map(async (file, index) => {
-           // 1. 上传到 Google Drive
            const driveFileId = await uploadImage(file);
-           if (!driveFileId) return null; // 如果上传失败
+           if (!driveFileId) return null;
 
            return new Promise<Note>((resolve) => {
                const img = new Image();
-               // 2. 加载图片以获取宽高
-               // 注意：driveFileId 应该是一个 URL (api.ts 中处理)
                img.src = driveFileId; 
                img.onload = () => {
                    const MAX_WIDTH = 300;
@@ -183,9 +210,9 @@ const App: React.FC = () => {
                    currentZ++;
                    resolve({
                        id: `pasted-${Date.now()}-${index}-${Math.random()}`,
-                       type: 'evidence', // 或 'photo'
+                       type: 'evidence', 
                        content: 'Pasted Image',
-                       fileId: driveFileId, // 🟢 存的是云端链接
+                       fileId: driveFileId,
                        x: worldPos.x - (finalWidth / 2) + (index * 20),
                        y: worldPos.y - (finalHeight / 2) + (index * 20),
                        zIndex: currentZ,
@@ -209,14 +236,13 @@ const App: React.FC = () => {
          setNotes(newNotes);
          setSelectedNodeId(loadedNotes[loadedNotes.length - 1].id);
          
-         // 🟢 触发保存
          saveToCloud(newNotes, connections);
       }
     };
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [maxZIndex, toWorld, notes, connections]); // 依赖项加上 notes, connections 以便保存最新状态
+  }, [maxZIndex, toWorld, notes, connections]);
 
 
   // --- Synchronize Dimensions ---
@@ -276,15 +302,12 @@ const App: React.FC = () => {
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
          if (connectingNodeId) {
-             // Delete Connection
              const nextNotes = notes.map((n) => (n.id === connectingNodeId ? { ...n, hasPin: false } : n));
              const nextConns = connections.filter(c => c.sourceId !== connectingNodeId && c.targetId !== connectingNodeId);
              
              setNotes(nextNotes);
              setConnections(nextConns);
              setConnectingNodeId(null);
-             
-             // 🟢 保存
              saveToCloud(nextNotes, nextConns);
              
          } else if (selectedNodeId) {
@@ -294,7 +317,7 @@ const App: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [connectingNodeId, editingNodeId, selectedNodeId, isUIHidden, notes, connections]); // 🟢 添加 notes, connections 依赖
+  }, [connectingNodeId, editingNodeId, selectedNodeId, isUIHidden, notes, connections]); 
 
   // --- Music Handler ---
   useEffect(() => {
@@ -480,7 +503,6 @@ const App: React.FC = () => {
         const updatePin = (n: Note) => ({ ...n, hasPin: true, pinX, pinY });
 
         if (isPinMode) {
-            // 🟢 Update Note State and Save
             const nextNotes = notes.map((n) => n.id === id ? updatePin(n) : n);
             setNotes(nextNotes);
             saveToCloud(nextNotes, connections);
@@ -489,7 +511,6 @@ const App: React.FC = () => {
 
         if (connectingNodeId) {
             if (connectingNodeId === id) return;
-            // 🟢 Update Note and Connections and Save
             const nextNotes = notes.map((n) => n.id === id ? updatePin(n) : n);
             let nextConns = connections;
             
@@ -510,7 +531,6 @@ const App: React.FC = () => {
     const newZ = maxZIndex + 1;
     setMaxZIndex(newZ);
 
-    // Feature: Duplicate on Alt + Drag
     if (e.altKey) {
          const newId = `dup-${Date.now()}-${Math.random()}`;
          const duplicatedNote: Note = {
@@ -525,7 +545,6 @@ const App: React.FC = () => {
          
          const nextNotes = [...notes, duplicatedNote];
          setNotes(nextNotes);
-         // Note: We don't save duplicate immediately until mouse up (drag ends)
          
          setDraggingId(newId); 
          setSelectedNodeId(newId);
@@ -536,7 +555,6 @@ const App: React.FC = () => {
          return;
     }
 
-    // Normal Drag
     setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, zIndex: newZ } : n)));
     setDraggingId(id);
     setDragOffset({
@@ -547,7 +565,6 @@ const App: React.FC = () => {
 
   // --- MAIN MOUSE MOVE ---
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // 0. Pin Dragging
     if (pinDragData) {
         isPinDragRef.current = true;
         const screenDx = e.clientX - pinDragData.startX;
@@ -572,7 +589,6 @@ const App: React.FC = () => {
         return;
     }
 
-    // 1. Panning
     if (isPanning && lastMousePosRef.current) {
         const dx = e.clientX - lastMousePosRef.current.x;
         const dy = e.clientY - lastMousePosRef.current.y;
@@ -581,7 +597,6 @@ const App: React.FC = () => {
         return;
     }
 
-    // 2. Rotating
     if (rotatingId && transformStart) {
         const deltaX = e.clientX - transformStart.mouseX;
         const newRotation = transformStart.initialRotation - (deltaX * 0.5);
@@ -589,7 +604,6 @@ const App: React.FC = () => {
         return;
     }
 
-    // 3. Resizing (Logic kept same as original, omitted verbose math for brevity but it is functionally identical)
     if (resizingId && transformStart) {
         const note = notes.find(n => n.id === resizingId);
         if(!note) return;
@@ -606,10 +620,6 @@ const App: React.FC = () => {
         const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad);
         const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
 
-        // ... (Resizing Logic maintained from original) ...
-        // Simplified strictly for the 'copy-paste' requirement context:
-        // We re-implement the core resizing logic here to ensure it works.
-        
         if (mode === 'CORNER') {
             const aspectRatio = transformStart.initialWidth / transformStart.initialHeight;
             const wChangeFromX = -localDx;
@@ -677,15 +687,10 @@ const App: React.FC = () => {
       } : n));
     }
   }, [isPanning, draggingId, dragOffset, connectingNodeId, view, toWorld, rotatingId, resizingId, transformStart, pinDragData, notes]); 
-  // Added 'notes' to dep array to ensure resize calculation has current state, though this causes re-renders. 
-  // In a prod app, we'd use Refs for high-freq updates, but for this structure it's okay.
 
   const handleMouseUp = () => {
-    // 🟢 检查是否发生了任何更改状态的交互，如果是，则保存
+    // 检查是否发生了任何更改状态的交互，如果是，则保存
     if (draggingId || resizingId || rotatingId || pinDragData) {
-        // 注意：这里的 notes 是闭包中的，但由于 handleMouseMove 更新了 state，
-        // React 会重新渲染 App，handleMouseUp 会被新的 notes 重新创建。
-        // 所以直接保存是安全的。
         saveToCloud(notes, connections);
     }
 
@@ -740,7 +745,6 @@ const App: React.FC = () => {
       setConnectingNodeId(id);
     } else {
       if (connectingNodeId !== id) {
-        // 🟢 Create Connection and Save
         const nextConns = [...connections];
         const exists = nextConns.some(c => (c.sourceId === connectingNodeId && c.targetId === id) || (c.sourceId === id && c.targetId === connectingNodeId));
         
@@ -773,7 +777,6 @@ const App: React.FC = () => {
     setNotes(nextNotes);
     setConnections(nextConns);
     setSelectedNodeId(null);
-    // 🟢 Save
     saveToCloud(nextNotes, nextConns);
   };
 
@@ -810,7 +813,7 @@ const App: React.FC = () => {
         x, y,
         zIndex: maxZIndex + 1,
         rotation: (Math.random() * 10) - 5,
-        fileId: type === 'photo' ? '' : undefined, // Empty initially for manual upload
+        fileId: type === 'photo' ? '' : undefined, 
         hasPin: false,
         scale: 1,
         width, height
@@ -821,7 +824,6 @@ const App: React.FC = () => {
      setNotes(nextNotes);
      setSelectedNodeId(id);
      
-     // 🟢 Save
      saveToCloud(nextNotes, connections);
   };
 
@@ -829,7 +831,6 @@ const App: React.FC = () => {
       if(window.confirm("Burn all evidence?")) { 
           setNotes([]); 
           setConnections([]); 
-          // 🟢 Save
           saveToCloud([], []);
       } 
   };
@@ -840,7 +841,6 @@ const App: React.FC = () => {
       const nextNotes = notes.map(n => n.id === updatedNote.id ? updatedNote : n);
       setNotes(nextNotes); 
       setEditingNodeId(null); 
-      // 🟢 Save
       saveToCloud(nextNotes, connections);
   };
   
@@ -850,7 +850,7 @@ const App: React.FC = () => {
   const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); dragCounter.current -= 1; if (dragCounter.current === 0) setIsDraggingFile(false); };
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); };
 
-  // --- Drop Handler (Modified for API Upload) ---
+  // --- Drop Handler ---
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDraggingFile(false);
@@ -864,9 +864,7 @@ const App: React.FC = () => {
     const dropX = worldPos.x;
     const dropY = worldPos.y;
 
-    // 🟢 Async Upload Loop
     const promises = imageFiles.map(async (file, index) => {
-        // 1. Upload to Google Drive
         const driveFileId = await uploadImage(file);
         if (!driveFileId) return null;
 
@@ -890,7 +888,7 @@ const App: React.FC = () => {
                     id: `evidence-${Date.now()}-${index}`,
                     type: 'evidence',
                     content: file.name,
-                    fileId: driveFileId, // 🟢 URL
+                    fileId: driveFileId, 
                     x: dropX - (finalWidth / 2) + (index * 20),
                     y: dropY - (finalHeight / 2) + (index * 20),
                     zIndex: currentZ,
@@ -914,7 +912,6 @@ const App: React.FC = () => {
         setNotes(nextNotes);
         setSelectedNodeId(loadedNotes[loadedNotes.length - 1].id);
         
-        // 🟢 Save
         saveToCloud(nextNotes, connections);
     }
   }, [maxZIndex, toWorld, notes, connections]);
@@ -947,7 +944,6 @@ const App: React.FC = () => {
     >
       <audio ref={audioRef} src="/home_bgm.mp3" loop />
       
-      {/* 🟢 Loading Indicator */}
       {isLoading && (
         <div className="absolute inset-0 z-[12000] flex items-center justify-center bg-black/50 backdrop-blur-sm text-white">
             <div className="flex flex-col items-center gap-4">
@@ -1113,7 +1109,6 @@ const App: React.FC = () => {
           {pinDragData && (() => {
              const n = notes.find(i => i.id === pinDragData.noteId);
              if (!n || !n.hasPin) return null;
-             // Calculate World Position of Pin for Label
              const { width, height } = getNoteDimensions(n);
              const cx = n.x + width / 2;
              const cy = n.y + height / 2;
