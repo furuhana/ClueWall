@@ -113,10 +113,9 @@ const App: React.FC = () => {
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
 
   // State for Tools
-  // Defaulting isUIHidden to true as requested, but toast will be false initially
+  // Defaulting isUIHidden to true as requested, UI starts hidden (clean mode)
   const [isPinMode, setIsPinMode] = useState<boolean>(false);
   const [isUIHidden, setIsUIHidden] = useState<boolean>(true);
-  const [showHiddenModeToast, setShowHiddenModeToast] = useState(false);
 
   // State for File Dragging
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -241,7 +240,6 @@ const App: React.FC = () => {
       if (e.key === 'Escape') {
         if (isUIHidden) {
             setIsUIHidden(false);
-            setShowHiddenModeToast(false); // Dismiss toast immediately on exit
             return;
         }
 
@@ -283,15 +281,6 @@ const App: React.FC = () => {
         }
     }
   }, []);
-
-  // --- Hide UI Toast Timer Logic ---
-  // Only controls the auto-hiding. Appearance is controlled imperatively by button click.
-  useEffect(() => {
-      if (showHiddenModeToast) {
-          const timer = setTimeout(() => setShowHiddenModeToast(false), 3000);
-          return () => clearTimeout(timer);
-      }
-  }, [showHiddenModeToast]);
 
   const toggleMusic = () => {
     if (!audioRef.current) return;
@@ -982,21 +971,6 @@ const App: React.FC = () => {
       {/* Background Music Audio Element */}
       <audio ref={audioRef} src="/home_bgm.mp3" loop />
       
-      {/* Hidden UI Mode Toast Notification */}
-      {/* WRAPPER: Fixed top and centered horizontally using Flex to avoid transform:translate-x conflicts */}
-      <div className="absolute top-6 left-0 w-full flex justify-center z-[11000] pointer-events-none">
-          <div 
-            className={`
-                bg-black/70 backdrop-blur-md text-white/90 px-6 py-3 rounded-full border border-white/10 shadow-2xl flex items-center gap-3
-                transition-all duration-700 ease-in-out transform
-                ${showHiddenModeToast ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-8'}
-            `}
-          >
-             <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
-             <span className="font-mono text-sm font-bold tracking-wide">PRESS ESC TO EXIT HIDDEN UI MODE</span>
-          </div>
-      </div>
-
       {/* UI Controls: Left (Tools) */}
       {!isUIHidden && (
         <div className="absolute top-4 left-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto">
@@ -1055,10 +1029,7 @@ const App: React.FC = () => {
                     <LocateFixed size={20} />
                 </button>
                 <button 
-                  onClick={() => {
-                      setIsUIHidden(true);
-                      setShowHiddenModeToast(true); // Imperatively show toast only on manual trigger
-                  }} 
+                  onClick={() => setIsUIHidden(true)} 
                   className="p-2 hover:bg-white/10 rounded-b-lg transition-colors" 
                   title="Hide UI (Press Esc to exit)"
                 >
