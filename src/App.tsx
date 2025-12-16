@@ -196,48 +196,57 @@ const App: React.FC = () => {
   };
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    // 🟢 框选逻辑 (最终修复版：使用 getBoundingClientRect 进行视觉碰撞检测)
+    if (selectionBox) {
+        const currentX = e.clientX; 
+        const currentY = e.clientY;
+        setSelectionBox(prev => prev ? ({ ...prev, currentX, currentY }) : null);
 
-// 🟢 框选逻辑 (最终版：DOM 视觉碰撞检测)
-if (selectionBox) {
-    const currentX = e.clientX; 
-    const currentY = e.clientY;
-    setSelectionBox(prev => prev ? ({ ...prev, currentX, currentY }) : null);
+        // 1. 获取选框在屏幕上的绝对矩形区域 (Pixel Space)
+        const selLeft = Math.min(selectionBox.startX, currentX);
+        const selRight = Math.max(selectionBox.startX, currentX);
+        const selTop = Math.min(selectionBox.startY, currentY);
+        const selBottom = Math.max(selectionBox.startY, currentY);
 
-    // 1. 获取选框在屏幕上的绝对矩形区域
-    const selLeft = Math.min(selectionBox.startX, currentX);
-    const selRight = Math.max(selectionBox.startX, currentX);
-    const selTop = Math.min(selectionBox.startY, currentY);
-    const selBottom = Math.max(selectionBox.startY, currentY);
+        const newSelected = new Set<string>();
 
-    const newSelected = new Set<string>();
-
-    // 2. 遍历所有笔记，直接问浏览器它们在哪里
-    notes.forEach(note => {
-        // 获取该笔记对应的 DOM 元素
-        const element = document.getElementById(note.id);
-        
-        if (element) {
-            // 🔥 核心：获取元素经过缩放、旋转后的真实视觉边界
-            const rect = element.getBoundingClientRect();
+        // 2. 遍历所有笔记，直接检查 DOM 元素的位置
+        notes.forEach(note => {
+            // 注意：这依赖于 DetectiveNode 组件设置了 id={note.id} 在 DOM 元素上
+            const element = document.getElementById(note.id);
             
-            // 3. 碰撞检测：排除掉完全不相交的情况
-            // 只要不是(在左边 OR 在右边 OR 在上边 OR 在下边)，那就是撞上了
-            const isMissed = 
-                rect.left > selRight || 
-                rect.right < selLeft || 
-                rect.top > selBottom || 
-                rect.bottom < selTop;
+            if (element) {
+                // 🔥 核心：获取元素在屏幕上的真实视觉边界（包含缩放、旋转）
+                const rect = element.getBoundingClientRect();
+                
+                // 3. 碰撞检测：只要两个矩形有重叠，就算选中
+                // 逻辑是：如果不在左侧 且 不在右侧 且 不在上方 且 不在下方，那就是重叠了
+                const isMissed = 
+                    rect.left > selRight || 
+                    rect.right < selLeft || 
+                    rect.top > selBottom || 
+                    rect.bottom < selTop;
 
-            if (!isMissed) {
-                newSelected.add(note.id);
+                if (!isMissed) {
+                    newSelected.add(note.id);
+                }
+            } else {
+                // 如果找不到 DOM 元素 (例如组件没设置 ID)，回退到简单的数学计算防止报错，但体验稍差
+                const dims = getNoteDimensions(note);
+                const scale = note.scale || 1;
+                const noteScreenX = (note.x * view.zoom) + view.x;
+                const noteScreenY = (note.y * view.zoom) + view.y;
+                const noteW = (dims.width * scale) * view.zoom;
+                const noteH = (dims.height * scale) * view.zoom;
+                if (!(noteScreenX > selRight || noteScreenX + noteW < selLeft || noteScreenY > selBottom || noteScreenY + noteH < selTop)) {
+                    newSelected.add(note.id);
+                }
             }
-        }
-    });
+        });
 
-    setSelectedIds(newSelected);
-    return;
-}
-
+        setSelectedIds(newSelected);
+        return;
+    }
 
     if (draggingId && lastDragPosRef.current) {
         const dx = (e.clientX - lastDragPosRef.current.x) / view.zoom;
@@ -318,6 +327,8 @@ if (selectionBox) {
           {notes.map((note) => (
             <DetectiveNode
               key={note.id}
+              // 🟢 我在这里显式传递了 id={note.id}，确保 getElementById 能找到它
+              id={note.id} 
               note={note}
               onMouseDown={handleNodeMouseDown}
               onDoubleClick={handleDoubleClick}
@@ -325,7 +336,7 @@ if (selectionBox) {
               isSelectedForConnection={connectingNodeId === note.id}
               isPinMode={isPinMode}
               isSelected={selectedIds.has(note.id)}
-              isMultiSelected={selectedIds.size > 1} // 🟢 传给子组件
+              isMultiSelected={selectedIds.size > 1} 
               onDelete={() => handleDeleteNote(note.id)}
               onStartPin={() => handleStartPinFromCorner(note.id)}
               onResize={handleUpdateNodeSize}
