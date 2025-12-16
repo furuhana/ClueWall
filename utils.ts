@@ -8,7 +8,7 @@ export const getNoteDimensions = (note: Note) => {
   }
 
   // Fallback defaults based on type (Approximations for initial render)
-  const width = note.width || NODE_WIDTH;
+  let width = note.width || NODE_WIDTH;
   let height = 200;
 
   switch (note.type) {
@@ -22,7 +22,11 @@ export const getNoteDimensions = (note: Note) => {
       height = 224; // Fix: 200 min-height + 24 padding
       break;
     case 'scrap':
-      height = 80; // Matches CSS min-h-[80px]
+      height = 50; // Matches CSS min-h-[50px]
+      break;
+    case 'marker':
+      width = 30;
+      height = 30;
       break;
     case 'note':
     default:

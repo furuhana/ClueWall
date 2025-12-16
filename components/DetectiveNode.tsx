@@ -21,7 +21,7 @@ interface DetectiveNodeProps {
 const noteStyle: React.CSSProperties = {
   borderRadius: '12px',
   // Layer 1: Horizontal lines (grayish blue for notebook feel)
-  // Layer 2: The Yellow Gradient requested
+  // Layer 2: The New Yellow Gradient requested
   backgroundImage: `
     linear-gradient(transparent 27px, rgba(94, 110, 128, 0.2) 28px),
     linear-gradient(180deg, #FFF293 0%, #DFC765 100%)
@@ -29,13 +29,24 @@ const noteStyle: React.CSSProperties = {
   backgroundSize: '100% 28px, 100% 100%',
   backgroundAttachment: 'local', // Ensures lines scroll with content
   lineHeight: '28px', // Matches the background size height
-  boxShadow: '0 2px 0 0 rgba(0, 0, 0, 0.25), 0 57px 43.8px -38px rgba(0, 0, 0, 0.25), 0 2px 0 0 #FFF5A6 inset, 0 2px 4px 0 rgba(181, 118, 0, 0.30) inset, 0 -2px 2px 0 rgba(91, 50, 21, 0.40) inset, 0 -5px 47.2px 0 rgba(205, 168, 48, 0.10) inset'
+  // Combined Shadow: 
+  // 1. Standard outer shadow (shared with photo/dossier) for consistency
+  // 2. Custom inset shadows for the yellow paper effect
+  boxShadow: `
+    0 15px 10px -18px #000, 
+    0 14px 12.2px -9px rgba(0, 0, 0, 0.25), 
+    0 57px 43.8px -38px rgba(0, 0, 0, 0.25),
+    0 2px 0 0 #FFF5A6 inset, 
+    0 2px 4px 0 rgba(181, 118, 0, 0.30) inset, 
+    0 -2px 2px 0 rgba(91, 50, 21, 0.40) inset, 
+    0 -5px 47.2px 0 rgba(205, 168, 48, 0.10) inset
+  `
 };
 
 const photoStyle: React.CSSProperties = {
   borderRadius: '12px',
-  background: 'linear-gradient(180deg, #F5F5F5 0%, #DBDBDB 100%)',
-  boxShadow: '0 2px 0 0 rgba(0, 0, 0, 0.25), 0 57px 43.8px -38px rgba(0, 0, 0, 0.25), 0 2px 0 0 #FFF inset, 0 2px 4px 0 rgba(162, 162, 162, 0.30) inset, 0 -2px 2px 0 rgba(0, 0, 0, 0.40) inset, 0 -5px 47.2px 0 rgba(0, 0, 0, 0.10) inset'
+  background: 'radial-gradient(79.89% 90.55% at 50% 34.36%, #FBFBFB 0%, #DBDBDB 84.87%)',
+  boxShadow: '0 15px 10px -18px #000, 0 14px 12.2px -9px rgba(0, 0, 0, 0.25), 0 57px 43.8px -38px rgba(0, 0, 0, 0.25), 0 2px 0 0 #FFF inset, 0 2px 4px 0 rgba(162, 162, 162, 0.30) inset, 0 -2px 2px 0 rgba(0, 0, 0, 0.40) inset, 0 -5px 47.2px 0 rgba(0, 0, 0, 0.10) inset'
 };
 
 const dossierTabStyle: React.CSSProperties = {
@@ -47,7 +58,19 @@ const dossierTabStyle: React.CSSProperties = {
 const dossierStyle: React.CSSProperties = {
   borderRadius: '12px',
   background: 'linear-gradient(180deg, #E6CCB2 0%, #DBB895 100%)',
-  boxShadow: '0 2px 0 0 rgba(0, 0, 0, 0.25), 0 57px 43.8px -38px rgba(0, 0, 0, 0.25), 0 2px 2px 0 #FFE6D0 inset, 0 2px 4px 0 rgba(192, 140, 102, 0.30) inset, 0 -2px 2px 0 rgba(76, 36, 19, 0.40) inset, 0 -5px 47.2px 0 rgba(167, 92, 45, 0.10) inset'
+  boxShadow: '0 15px 10px -18px #000, 0 14px 12.2px -9px rgba(0, 0, 0, 0.25), 0 57px 43.8px -38px rgba(0, 0, 0, 0.25), 0 2px 2px 0 #FFE6D0 inset, 0 2px 4px 0 rgba(192, 140, 102, 0.30) inset, 0 -2px 2px 0 rgba(76, 36, 19, 0.40) inset, 0 -5px 47.2px 0 rgba(167, 92, 45, 0.10) inset'
+};
+
+const scrapStyle: React.CSSProperties = {
+  borderRadius: '4px',
+  background: 'linear-gradient(180deg, #FBFBFB -21.09%, #DBDBDB 190%)',
+  boxShadow: '0 2px 6px -4px #000, 0 3px 2px -2px #FFF inset, 0 -5px 47.2px 0 rgba(0, 0, 0, 0.10) inset'
+};
+
+const markerStyle: React.CSSProperties = {
+  borderRadius: '1px',
+  background: 'linear-gradient(180deg, #CFDFEE -50%, #ABBDD7 150%)',
+  boxShadow: '0 3.5px 0 -2px #EAF5FF inset, 0 0 1px 0 rgba(236, 250, 255, 0.50) inset, 0 6px 2px -6px rgba(126, 179, 229, 0.70) inset, 0 -6px 1px -6px rgba(82, 113, 144, 0.70) inset, 0 -6px 4.2px -6px #6A95B4 inset, -6px -4px 3.6px -6px rgba(0, 0, 0, 0.10), 6px -4px 3.6px -6px rgba(0, 0, 0, 0.10), 2px 0 2px -2px rgba(0, 0, 0, 0.40), -2px 0 2px -2px rgba(0, 0, 0, 0.40)',
 };
 
 const DetectiveNode: React.FC<DetectiveNodeProps> = ({
@@ -194,14 +217,29 @@ const DetectiveNode: React.FC<DetectiveNodeProps> = ({
       case 'scrap':
         return (
           <div 
-            className="bg-white p-4 transition-colors hover:bg-gray-50 min-h-[80px] h-full"
-            style={{
-              clipPath: 'polygon(2% 0%, 98% 2%, 100% 95%, 95% 100%, 5% 98%, 0% 90%)',
-              borderLeft: '4px solid #ccc',
-              filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.20)) drop-shadow(0 13px 15px rgba(0, 0, 0, 0.25)) drop-shadow(0 22px 17px rgba(0, 0, 0, 0.10))'
-            }}
+            style={scrapStyle}
+            className="p-4 min-h-[50px] h-full"
           >
-            <p className="font-mono text-sm text-gray-600 italic whitespace-pre-wrap">"{note.content}"</p>
+            <p className="font-mono text-sm text-gray-600 italic whitespace-pre-wrap">{note.content}</p>
+          </div>
+        );
+
+      case 'marker':
+        return (
+          <div 
+            style={markerStyle}
+            className="w-full h-full flex items-center justify-center"
+          >
+            <span 
+                className="text-[#2b3a4a] leading-none text-center select-none"
+                style={{ 
+                    fontSize: '18px', 
+                    fontWeight: 900, // Extra bold
+                    fontFamily: 'Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif'
+                }}
+            >
+                {note.content}
+            </span>
           </div>
         );
         

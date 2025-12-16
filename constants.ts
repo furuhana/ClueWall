@@ -50,8 +50,8 @@ export const INITIAL_NOTES: Note[] = [
     zIndex: 4,
     rotation: -10,
     hasPin: false,
-    width: 256,
-    height: 80, // Matches CSS min-h-[80px]
+    width: 257, // Changed default to 257
+    height: 50, // Changed default to 50
     scale: 1
   },
 ];

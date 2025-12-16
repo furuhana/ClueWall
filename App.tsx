@@ -329,7 +329,7 @@ const App: React.FC = () => {
             const avgWidthChange = (wChangeFromX + wChangeFromY) / 2;
 
             // Base calculation
-            let newWidth = Math.max(50, transformStart.initialWidth + avgWidthChange);
+            let newWidth = Math.max(30, transformStart.initialWidth + avgWidthChange);
             
             // --- CONSTRAINT LOGIC ---
             let newScale: number | undefined = undefined;
@@ -380,16 +380,18 @@ const App: React.FC = () => {
              let newX = transformStart.initialX;
              let newY = transformStart.initialY;
 
-             const MIN_W = isTextType ? 100 : 50;
+             const MIN_W = isTextType ? 100 : 30;
              
              // Dynamic Height Limit based on Type
-             let MIN_H = 50;
+             let MIN_H = 30;
              if (note.type === 'dossier') {
                  MIN_H = 220;
              } else if (note.type === 'note') {
                  MIN_H = 160;
              } else if (note.type === 'scrap') {
-                 MIN_H = 80;
+                 MIN_H = 50; 
+             } else if (note.type === 'marker') {
+                 MIN_H = 30;
              }
 
              if (mode === 'LEFT') {
@@ -533,9 +535,33 @@ const App: React.FC = () => {
      const x = worldPos.x + (Math.random() * 100 - 50);
      const y = worldPos.y + (Math.random() * 100 - 50);
      const id = `new-${Date.now()}`;
+     
+     // Set specific dimensions based on type to match INITIAL_NOTES
+     let width = 256; 
+     let height = 160;
+
+     if (type === 'photo') height = 280;
+     else if (type === 'dossier') height = 224;
+     else if (type === 'scrap') {
+         width = 257; 
+         height = 50;
+     } else if (type === 'marker') {
+         width = 30;
+         height = 30;
+     }
+
+     let content = 'New Clue';
+     if (type === 'photo') content = 'New Evidence';
+     else if (type === 'scrap') content = 'Scrap note...';
+     else if (type === 'marker') {
+         // Count existing markers to determine the number
+         const existingMarkers = notes.filter(n => n.type === 'marker');
+         content = (existingMarkers.length + 1).toString();
+     }
+
      const newNote: Note = {
         id, type,
-        content: type === 'photo' ? 'New Evidence' : (type === 'scrap' ? 'Scrap note...' : 'New Clue'),
+        content,
         title: type === 'dossier' ? 'TOP SECRET' : undefined,
         subtitle: type === 'dossier' ? 'CASE FILE' : undefined,
         x, y,
@@ -544,6 +570,8 @@ const App: React.FC = () => {
         fileId: type === 'photo' ? '/photo_1.png' : undefined,
         hasPin: false,
         scale: 1,
+        width,
+        height
      };
      setMaxZIndex(prev => prev + 1);
      setNotes(prev => [...prev, newNote]);
@@ -673,6 +701,7 @@ const App: React.FC = () => {
                    <button onClick={() => addNote('photo')} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button>
                    <button onClick={() => addNote('dossier')} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button>
                    <button onClick={() => addNote('scrap')} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button>
+                   <button onClick={() => addNote('marker')} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button>
                    <button onClick={clearBoard} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1">
                       <Trash2 size={12}/> Clear
                    </button>
