@@ -113,8 +113,9 @@ const App: React.FC = () => {
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
 
   // State for Tools
+  // Defaulting isUIHidden to true as requested, but toast will be false initially
   const [isPinMode, setIsPinMode] = useState<boolean>(false);
-  const [isUIHidden, setIsUIHidden] = useState<boolean>(false);
+  const [isUIHidden, setIsUIHidden] = useState<boolean>(true);
   const [showHiddenModeToast, setShowHiddenModeToast] = useState(false);
 
   // State for File Dragging
@@ -124,7 +125,7 @@ const App: React.FC = () => {
   // State for Music
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
-
+  
   // Refs
   const boardRef = useRef<HTMLDivElement>(null);
 
@@ -240,6 +241,7 @@ const App: React.FC = () => {
       if (e.key === 'Escape') {
         if (isUIHidden) {
             setIsUIHidden(false);
+            setShowHiddenModeToast(false); // Dismiss toast immediately on exit
             return;
         }
 
@@ -282,16 +284,14 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // --- Hide UI Toast Logic ---
+  // --- Hide UI Toast Timer Logic ---
+  // Only controls the auto-hiding. Appearance is controlled imperatively by button click.
   useEffect(() => {
-      if (isUIHidden) {
-          setShowHiddenModeToast(true);
+      if (showHiddenModeToast) {
           const timer = setTimeout(() => setShowHiddenModeToast(false), 3000);
           return () => clearTimeout(timer);
-      } else {
-          setShowHiddenModeToast(false);
       }
-  }, [isUIHidden]);
+  }, [showHiddenModeToast]);
 
   const toggleMusic = () => {
     if (!audioRef.current) return;
@@ -1051,7 +1051,14 @@ const App: React.FC = () => {
                 <button onClick={handleResetView} className="p-2 hover:bg-white/10 rounded-t-lg border-b border-white/10 transition-colors" title="Reset View (Center & 100%)">
                     <LocateFixed size={20} />
                 </button>
-                <button onClick={() => setIsUIHidden(true)} className="p-2 hover:bg-white/10 rounded-b-lg transition-colors" title="Hide UI (Press Esc to exit)">
+                <button 
+                  onClick={() => {
+                      setIsUIHidden(true);
+                      setShowHiddenModeToast(true); // Imperatively show toast only on manual trigger
+                  }} 
+                  className="p-2 hover:bg-white/10 rounded-b-lg transition-colors" 
+                  title="Hide UI (Press Esc to exit)"
+                >
                     <Maximize size={20} />
                 </button>
             </div>
