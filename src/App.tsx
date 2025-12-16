@@ -196,38 +196,50 @@ const App: React.FC = () => {
   };
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // 🟢 框选逻辑 (修复版 - 接触/重叠判定)
+    // 🟢 框选逻辑 (使用屏幕空间 Screen Space 判定，更直观准确)
     if (selectionBox) {
         const currentX = e.clientX; 
         const currentY = e.clientY;
         setSelectionBox(prev => prev ? ({ ...prev, currentX, currentY }) : null);
 
-        // 1. 获取选框的 World 坐标（将屏幕像素转换为画布坐标）
-        const worldP1 = toWorld(selectionBox.startX, selectionBox.startY);
-        const worldP2 = toWorld(currentX, currentY);
-
-        // 2. 标准化选框边界（处理向左/向上拖拽的情况，确保 left < right）
-        const selLeft = Math.min(worldP1.x, worldP2.x);
-        const selRight = Math.max(worldP1.x, worldP2.x);
-        const selTop = Math.min(worldP1.y, worldP2.y);
-        const selBottom = Math.max(worldP1.y, worldP2.y);
+        // 1. 获取选框的 屏幕坐标 (Pixels)
+        const selLeft = Math.min(selectionBox.startX, currentX);
+        const selRight = Math.max(selectionBox.startX, currentX);
+        const selTop = Math.min(selectionBox.startY, currentY);
+        const selBottom = Math.max(selectionBox.startY, currentY);
 
         const newSelected = new Set<string>();
+        
         notes.forEach(note => {
-            const { width, height } = getNoteDimensions(note);
-            // 3. 计算物体的边界
-            const noteLeft = note.x;
-            const noteRight = note.x + (width || 200);
-            const noteTop = note.y;
-            const noteBottom = note.y + (height || 200);
+            const dims = getNoteDimensions(note);
+            // 确保如果有 note.scale，我们计算碰撞体积时也把它算进去
+            // 如果 scale 未定义，默认为 1
+            const scale = note.scale || 1;
+            const logicalWidth = dims.width || 200;
+            const logicalHeight = dims.height || 200;
 
-            // 4. 碰撞判定（Intersection）：只要不相离，就是相交
-            // 如果物体在选框的右边、左边、下边或上边，则说明“没碰到” (isMissed)
+            // 2. 将 Note 的 World 坐标转换回 Screen 坐标 (所见即所得)
+            // 公式：Screen = World * Zoom + Pan
+            const noteScreenX = (note.x * view.zoom) + view.x;
+            const noteScreenY = (note.y * view.zoom) + view.y;
+            const noteScreenWidth = logicalWidth * scale * view.zoom;
+            const noteScreenHeight = logicalHeight * scale * view.zoom;
+
+            // 3. 计算 Note 的屏幕边界
+            const noteLeft = noteScreenX;
+            const noteRight = noteScreenX + noteScreenWidth;
+            const noteTop = noteScreenY;
+            const noteBottom = noteScreenY + noteScreenHeight;
+
+            // 4. 碰撞判定 (Intersection) - 只要不相离，就是相交
+            // 添加 5px 的容错 Buffer，让选中手感更好（稍微碰到一点点也算）
+            const buffer = 5; 
+
             const isMissed = 
-                noteLeft > selRight ||  // 物体在选框右侧
-                noteRight < selLeft ||  // 物体在选框左侧
-                noteTop > selBottom ||  // 物体在选框下方
-                noteBottom < selTop;    // 物体在选框上方
+                noteLeft > (selRight + buffer) || 
+                noteRight < (selLeft - buffer) || 
+                noteTop > (selBottom + buffer) || 
+                noteBottom < (selTop - buffer);
 
             if (!isMissed) {
                 newSelected.add(note.id);
