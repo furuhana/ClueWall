@@ -180,14 +180,14 @@ const App: React.FC = () => {
 
     const newZ = maxZIndex + 1; setMaxZIndex(newZ);
     if (e.altKey) {
-         const targetNote = notes.find(n => n.id === id);
-         if (targetNote) {
-             const newId = `dup-${Date.now()}-${Math.random()}`;
-             const duplicatedNote: Note = { ...targetNote, id: newId, zIndex: newZ, x: targetNote.x + 20, y: targetNote.y + 20, hasPin: false, title: targetNote.title ? `${targetNote.title} (Copy)` : undefined, };
-             setNotes([...notes, duplicatedNote]); setDraggingId(newId); setSelectedIds(new Set([newId])); 
-             lastDragPosRef.current = { x: e.clientX, y: e.clientY };
-         }
-         return;
+          const targetNote = notes.find(n => n.id === id);
+          if (targetNote) {
+              const newId = `dup-${Date.now()}-${Math.random()}`;
+              const duplicatedNote: Note = { ...targetNote, id: newId, zIndex: newZ, x: targetNote.x + 20, y: targetNote.y + 20, hasPin: false, title: targetNote.title ? `${targetNote.title} (Copy)` : undefined, };
+              setNotes([...notes, duplicatedNote]); setDraggingId(newId); setSelectedIds(new Set([newId])); 
+              lastDragPosRef.current = { x: e.clientX, y: e.clientY };
+          }
+          return;
     }
 
     setNotes(prev => prev.map(n => selectedIds.has(n.id) || n.id === id ? { ...n, zIndex: newZ } : n));
@@ -196,26 +196,40 @@ const App: React.FC = () => {
   };
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // 🟢 框选逻辑 (修复版)
+    // 🟢 框选逻辑 (修复版 - 接触/重叠判定)
     if (selectionBox) {
-        const currentX = e.clientX; const currentY = e.clientY;
+        const currentX = e.clientX; 
+        const currentY = e.clientY;
         setSelectionBox(prev => prev ? ({ ...prev, currentX, currentY }) : null);
 
-        // 计算框选区域 (World Space)
-        const startScreenX = Math.min(selectionBox.startX, currentX);
-        const startScreenY = Math.min(selectionBox.startY, currentY);
-        const endScreenX = Math.max(selectionBox.startX, currentX);
-        const endScreenY = Math.max(selectionBox.startY, currentY);
+        // 1. 获取选框的 World 坐标（将屏幕像素转换为画布坐标）
+        const worldP1 = toWorld(selectionBox.startX, selectionBox.startY);
+        const worldP2 = toWorld(currentX, currentY);
 
-        const worldStart = toWorld(startScreenX, startScreenY);
-        const worldEnd = toWorld(endScreenX, endScreenY);
+        // 2. 标准化选框边界（处理向左/向上拖拽的情况，确保 left < right）
+        const selLeft = Math.min(worldP1.x, worldP2.x);
+        const selRight = Math.max(worldP1.x, worldP2.x);
+        const selTop = Math.min(worldP1.y, worldP2.y);
+        const selBottom = Math.max(worldP1.y, worldP2.y);
 
         const newSelected = new Set<string>();
         notes.forEach(note => {
             const { width, height } = getNoteDimensions(note);
-            // 简单的 AABB 碰撞检测
-            if (note.x < worldEnd.x && note.x + width > worldStart.x &&
-                note.y < worldEnd.y && note.y + height > worldStart.y) {
+            // 3. 计算物体的边界
+            const noteLeft = note.x;
+            const noteRight = note.x + (width || 200);
+            const noteTop = note.y;
+            const noteBottom = note.y + (height || 200);
+
+            // 4. 碰撞判定（Intersection）：只要不相离，就是相交
+            // 如果物体在选框的右边、左边、下边或上边，则说明“没碰到” (isMissed)
+            const isMissed = 
+                noteLeft > selRight ||  // 物体在选框右侧
+                noteRight < selLeft ||  // 物体在选框左侧
+                noteTop > selBottom ||  // 物体在选框下方
+                noteBottom < selTop;    // 物体在选框上方
+
+            if (!isMissed) {
                 newSelected.add(note.id);
             }
         });
