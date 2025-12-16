@@ -983,12 +983,15 @@ const App: React.FC = () => {
       <audio ref={audioRef} src="/home_bgm.mp3" loop />
       
       {/* Hidden UI Mode Toast Notification */}
-      <div 
-        className={`absolute top-6 left-1/2 transform -translate-x-1/2 z-[11000] pointer-events-none transition-all duration-700 ease-in-out ${
-            showHiddenModeToast ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-8'
-        }`}
-      >
-          <div className="bg-black/70 backdrop-blur-md text-white/90 px-6 py-3 rounded-full border border-white/10 shadow-2xl flex items-center gap-3">
+      {/* WRAPPER: Fixed top and centered horizontally using Flex to avoid transform:translate-x conflicts */}
+      <div className="absolute top-6 left-0 w-full flex justify-center z-[11000] pointer-events-none">
+          <div 
+            className={`
+                bg-black/70 backdrop-blur-md text-white/90 px-6 py-3 rounded-full border border-white/10 shadow-2xl flex items-center gap-3
+                transition-all duration-700 ease-in-out transform
+                ${showHiddenModeToast ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-8'}
+            `}
+          >
              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
              <span className="font-mono text-sm font-bold tracking-wide">PRESS ESC TO EXIT HIDDEN UI MODE</span>
           </div>
