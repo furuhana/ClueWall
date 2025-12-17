@@ -348,7 +348,7 @@ const App: React.FC = () => {
 
   const handleRotateStart = (e: React.MouseEvent, id: string) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if(!note) return; setRotatingId(id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth:0, initialHeight:0, initialX:0, initialY:0, initialScale:1 }); };
    
-  // 🟢 修复1：允许所有类型上下拉伸 (删除了之前的拦截代码)
+  // 🟢 修复1：允许所有类型上下拉伸
   const handleResizeStart = (e: React.MouseEvent, id: string, mode: ResizeMode) => { 
       e.stopPropagation(); e.preventDefault(); 
       const note = notes.find(n => n.id === id); 
@@ -483,7 +483,7 @@ const App: React.FC = () => {
     if (isPanning && lastMousePosRef.current) { const dx = e.clientX - lastMousePosRef.current.x; const dy = e.clientY - lastMousePosRef.current.y; setView(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy })); lastMousePosRef.current = { x: e.clientX, y: e.clientY }; return; }
     if (rotatingId && transformStart) { const deltaX = e.clientX - transformStart.mouseX; const newRotation = transformStart.initialRotation - (deltaX * 0.5); setNotes(prev => prev.map(n => n.id === rotatingId ? { ...n, rotation: newRotation } : n)); return; }
      
-    // 🟢 修复2：更新拉伸计算逻辑，加入最小高度限制（Dynamic Min Height）
+    // 🟢 修复2：拉伸限制高度
     if (resizingId && transformStart) { 
         const note = notes.find(n => n.id === resizingId); 
         if(!note) return; 
@@ -510,7 +510,7 @@ const App: React.FC = () => {
             let newX = transformStart.initialX; 
             let newY = transformStart.initialY; 
             
-            // 🟢 定义各类型的本体最小高度
+            // 🟢 动态最小高度
             let minH = 30;
             if (note.type === 'note') minH = 160;
             if (note.type === 'dossier') minH = 224;
@@ -524,11 +524,11 @@ const App: React.FC = () => {
             } else if (mode === 'RIGHT') { 
                 newWidth = Math.max(MIN_W, transformStart.initialWidth + localDx); 
             } else if (mode === 'TOP') { 
-                // 🟢 向上拉伸：限制高度，并确保底部位置不变
+                // 🟢 向上拉伸限制
                 newHeight = Math.max(minH, transformStart.initialHeight - localDy); 
                 newY = (transformStart.initialY + transformStart.initialHeight) - newHeight;
             } else if (mode === 'BOTTOM') { 
-                // 🟢 向下拉伸：限制高度
+                // 🟢 向下拉伸限制
                 newHeight = Math.max(minH, transformStart.initialHeight + localDy); 
             } 
             setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, x: newX, y: newY } : n)); 
@@ -571,12 +571,11 @@ const App: React.FC = () => {
   const handleUpdateConnectionColor = (id: string, color: string) => { const nextConns = connections.map(c => c.id === id ? { ...c, color } : c); setConnections(nextConns); saveToCloud(notes, nextConns); };
   const handleStartPinFromCorner = (id: string) => setIsPinMode(true);
   
-  // 🟢 修复3：addNote 逻辑重写 - 使用函数式更新防止状态覆盖，且只上传新数据防止回滚
+  // 🟢 修复3：核心修复 - 使用 setNotes(prev) 确保状态一定更新，且只上传新数据
   const addNote = (type: Note['type']) => { 
       const centerX = window.innerWidth / 2; 
       const centerY = window.innerHeight / 2; 
       const worldPos = toWorld(centerX, centerY); 
-      // 随机偏移防止重叠
       const x = worldPos.x + (Math.random() * 60 - 30); 
       const y = worldPos.y + (Math.random() * 60 - 30); 
       
@@ -599,11 +598,11 @@ const App: React.FC = () => {
       }; 
       
       setMaxZIndex(prev => prev + 1); 
-      // 关键：基于 prev 更新，保证不丢数据
+      // 关键：函数式更新
       setNotes(prev => [...prev, newNote]); 
       setSelectedIds(new Set([id])); 
       
-      // 关键：只传新数据到云端
+      // 关键：增量上传
       saveToCloud([newNote], []); 
   };
 
@@ -642,14 +641,22 @@ const App: React.FC = () => {
       </div>
 
       {!isUIHidden && (
-        <div 
-          className="absolute top-4 left-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto"
-          // 🟢 修复4：彻底阻断事件冒泡，防止点击按钮时触发背景的“取消选中”逻辑
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          <div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-float border border-white/10 max-w-sm"><h1 className="text-xl font-bold font-handwriting mb-1 text-red-500">CASE #2023-X</h1><div className="flex flex-col gap-2"><button onClick={() => setIsPinMode(!isPinMode)} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600'}`}><MapPin size={16} /> {isPinMode ? 'DONE' : 'PIN TOOL'}</button><div className="grid grid-cols-2 gap-2 mt-2"><button onClick={() => addNote('note')} className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs">Add Note</button><button onClick={() => addNote('photo')} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button><button onClick={() => addNote('dossier')} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button><button onClick={() => addNote('scrap')} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button><button onClick={() => addNote('marker')} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button><button onClick={clearBoard} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1"><Trash2 size={12}/> Clear</button></div></div></div>
+        <div className="absolute top-4 left-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto">
+          <div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-float border border-white/10 max-w-sm">
+            <h1 className="text-xl font-bold font-handwriting mb-1 text-red-500">CASE #2023-X</h1>
+            <div className="flex flex-col gap-2">
+                <button onClick={(e) => { e.stopPropagation(); setIsPinMode(!isPinMode); }} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600'}`}><MapPin size={16} /> {isPinMode ? 'DONE' : 'PIN TOOL'}</button>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                    {/* 🟢 修复4：直接在按钮上阻止冒泡，简单且有效 */}
+                    <button onClick={(e) => { e.stopPropagation(); addNote('note'); }} className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs">Add Note</button>
+                    <button onClick={(e) => { e.stopPropagation(); addNote('photo'); }} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button>
+                    <button onClick={(e) => { e.stopPropagation(); addNote('dossier'); }} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button>
+                    <button onClick={(e) => { e.stopPropagation(); addNote('scrap'); }} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button>
+                    <button onClick={(e) => { e.stopPropagation(); addNote('marker'); }} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button>
+                    <button onClick={(e) => { e.stopPropagation(); clearBoard(); }} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1"><Trash2 size={12}/> Clear</button>
+                </div>
+            </div>
+          </div>
         </div>
       )}
 
