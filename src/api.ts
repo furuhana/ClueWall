@@ -6,6 +6,7 @@ if (!API_URL) {
   console.error("❌ 严重错误: 未找到 VITE_API_URL 环境变量！");
 }
 
+// 🟢 获取所有数据
 export const fetchBoardData = async () => {
   if (!API_URL) return null;
   try {
@@ -17,9 +18,9 @@ export const fetchBoardData = async () => {
   }
 };
 
+// 🟢 保存数据 (备用/双备份)
 export const saveBoardData = async (notes: Note[], connections: Connection[]) => {
   if (!API_URL) return;
-  // Google Sheets 保存逻辑 (目前主要走 Supabase，这个作为备用或双备份)
   fetch(API_URL, {
     method: 'POST',
     body: JSON.stringify({ action: 'saveBoard', notes, connections })
@@ -40,11 +41,11 @@ export const uploadImage = async (file: File): Promise<string | null> => {
     reader.onload = async () => {
       const base64 = reader.result as string;
       try {
-        console.log("正在上传图片到 Google Drive..."); // 调试日志
+        console.log("正在上传图片到 Google Drive..."); 
         
         const response = await fetch(API_URL, {
           method: 'POST',
-          // ⚠️ 关键：不要加 headers Content-Type，让浏览器自动处理 Simple Request 避免 CORS
+          // ⚠️ 关键：不要加 headers Content-Type，让浏览器自动处理 Simple Request
           body: JSON.stringify({
             action: 'uploadImage',
             base64,
@@ -52,18 +53,20 @@ export const uploadImage = async (file: File): Promise<string | null> => {
           })
         });
         
-        const text = await response.text(); // 先按文本读取，防止 JSON 解析挂了没报错
+        const text = await response.text(); 
         try {
             const data = JSON.parse(text);
-            if (data && data.fileId) {
-                console.log("上传成功! URL:", data.fileId);
-                resolve(data.fileId);
+            // 🟢 适配新的 GAS 返回结构：优先使用 fileUrl (为了显示)，如果没有则用 fileId
+            if (data && data.status === 'success') {
+                const resultUrl = data.fileUrl || data.fileId;
+                console.log("上传成功! URL:", resultUrl);
+                resolve(resultUrl);
             } else {
-                console.error("GAS 返回错误结构:", data);
+                console.error("GAS 返回错误:", data);
                 resolve(null);
             }
         } catch (e) {
-            console.error("GAS 返回了非 JSON 数据 (可能是报错页面):", text);
+            console.error("GAS 返回了非 JSON 数据:", text);
             resolve(null);
         }
 
@@ -73,4 +76,26 @@ export const uploadImage = async (file: File): Promise<string | null> => {
       }
     };
   });
+};
+
+// 🟢 [新增] 删除图片
+export const deleteImageFromDrive = async (fileIdOrUrl: string) => {
+  if (!API_URL) return;
+  
+  try {
+    console.log("正在从 Drive 删除图片:", fileIdOrUrl);
+    
+    // 发送删除请求，不需要等待结果 (fire and forget)，或者你可以 await 它
+    await fetch(API_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'deleteImage',
+        fileId: fileIdOrUrl // 后端会自动识别这是 ID 还是 URL
+      })
+    });
+    
+    console.log("Drive 删除指令已发送");
+  } catch (error) {
+    console.error("删除 Drive 图片失败:", error);
+  }
 };
