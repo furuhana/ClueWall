@@ -9,7 +9,8 @@ import {
   StickyNote, Image as ImageIcon, Folder, FileText, Crosshair
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
-import { uploadImage } from './api'; 
+// 🟢 1. 引入删除图片的 API
+import { uploadImage, deleteImageFromDrive } from './api'; 
 
 const GRID_URL = "data:image/svg+xml,%3Csvg width='30' height='30' viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='30' height='30' fill='none' stroke='%23CAB9A1' stroke-width='0.7' opacity='0.3'/%3E%3C/svg%3E";
 type ResizeMode = 'CORNER' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM';
@@ -83,6 +84,12 @@ const App: React.FC = () => {
   const handleDeleteNote = (id: string) => { 
       if (connectingNodeId === id) setConnectingNodeId(null);
 
+      // 🟢 2. 核心修复：检查并删除 Google Drive 上的文件
+      const targetNote = notes.find(n => n.id === id);
+      if (targetNote && targetNote.fileId) {
+          deleteImageFromDrive(targetNote.fileId);
+      }
+
       const nextNotes = notes.filter(n => n.id !== id); 
       const nextConns = connections.filter(c => c.sourceId !== id && c.targetId !== id); 
       setNotes(nextNotes); 
@@ -142,9 +149,19 @@ const App: React.FC = () => {
               return; 
           }
 
-          // 🚨 删除便签逻辑
+          // 🚨 删除便签逻辑 (批量删除)
           if (currentSelected.size > 0) {
               const idsArray = Array.from(currentSelected);
+              
+              // 🟢 3. 核心修复：批量删除时也要检查并删除 Drive 文件
+              idsArray.forEach(id => {
+                  const noteToDelete = currentNotes.find(n => n.id === id);
+                  if (noteToDelete && noteToDelete.fileId) {
+                      deleteImageFromDrive(noteToDelete.fileId);
+                  }
+                  deleteFromCloud(id);
+              });
+
               const nextNotes = currentNotes.filter(n => !currentSelected.has(n.id));
               const nextConns = currentConns.filter(c => !currentSelected.has(c.sourceId) && !currentSelected.has(c.targetId));
               
@@ -152,7 +169,6 @@ const App: React.FC = () => {
               setConnections(nextConns);
               setSelectedIds(new Set());
 
-              idsArray.forEach(id => deleteFromCloud(id));
               const deletedConns = currentConns.filter(c => currentSelected.has(c.sourceId) || currentSelected.has(c.targetId));
               deletedConns.forEach(c => deleteFromCloud(undefined, c.id));
           }
@@ -345,13 +361,10 @@ const App: React.FC = () => {
 
   const handleRotateStart = (e: React.MouseEvent, id: string) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if(!note) return; setRotatingId(id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth:0, initialHeight:0, initialX:0, initialY:0, initialScale:1 }); };
    
-  // 🟢 修复1：完全移除之前的“阻止拉伸”逻辑，允许所有卡片上下拉伸
   const handleResizeStart = (e: React.MouseEvent, id: string, mode: ResizeMode) => { 
       e.stopPropagation(); e.preventDefault(); 
       const note = notes.find(n => n.id === id); 
       if(!note) return; 
-
-      // 之前这里有 if(['note'..].. return) 代码，已经被删除了，现在任何方向都开放
 
       const dims = getNoteDimensions(note); 
       setResizingId(id); 
@@ -481,68 +494,9 @@ const App: React.FC = () => {
     if (pinDragData) { /* ... same pin logic ... */ isPinDragRef.current = true; const screenDx = e.clientX - pinDragData.startX; const screenDy = e.clientY - pinDragData.startY; const worldDx = screenDx / view.zoom; const worldDy = screenDy / view.zoom; const rad = -(pinDragData.rotation * Math.PI) / 180; const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad); let newPinX = pinDragData.initialPinX + localDx; let newPinY = pinDragData.initialPinY + localDy; newPinX = Math.max(0, Math.min(newPinX, pinDragData.width)); newPinY = Math.max(0, Math.min(newPinY, pinDragData.height)); setNotes(prev => prev.map(n => n.id === pinDragData.noteId ? { ...n, pinX: newPinX, pinY: newPinY } : n)); return; }
     if (isPanning && lastMousePosRef.current) { const dx = e.clientX - lastMousePosRef.current.x; const dy = e.clientY - lastMousePosRef.current.y; setView(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy })); lastMousePosRef.current = { x: e.clientX, y: e.clientY }; return; }
     if (rotatingId && transformStart) { const deltaX = e.clientX - transformStart.mouseX; const newRotation = transformStart.initialRotation - (deltaX * 0.5); setNotes(prev => prev.map(n => n.id === rotatingId ? { ...n, rotation: newRotation } : n)); return; }
-    
-    // 🟢 修复2：拉伸逻辑更新，强制限制最小宽高，防止被拉“扁”或“没”
-    if (resizingId && transformStart) { 
-        const note = notes.find(n => n.id === resizingId); 
-        if(!note) return; 
-        const mode = transformStart.resizeMode; 
-        const screenDx = e.clientX - transformStart.mouseX; 
-        const screenDy = e.clientY - transformStart.mouseY; 
-        const worldDx = screenDx / view.zoom; 
-        const worldDy = screenDy / view.zoom; 
-        const rad = -(transformStart.initialRotation * Math.PI) / 180; 
-        const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); 
-        const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
-
-        // 🟢 定义所有类型的最小尺寸限制表
-        const MIN_DIMENSIONS: Record<string, { w: number, h: number }> = {
-            note: { w: 106, h: 160 },
-            photo: { w: 124, h: 140 },
-            scrap: { w: 146, h: 50 },
-            dossier: { w: 256, h: 224 },
-            marker: { w: 30, h: 30 },
-        };
-        // 获取当前便签的限制，如果没有则默认 50x50
-        const limits = MIN_DIMENSIONS[note.type] || { w: 50, h: 50 };
-
-        if (mode === 'CORNER') { 
-            const aspectRatio = transformStart.initialWidth / transformStart.initialHeight; 
-            const avgWidthChange = (-localDx + localDy * aspectRatio) / 2; 
-            let newWidth = Math.max(limits.w, transformStart.initialWidth + avgWidthChange); 
-            let newHeight = newWidth / aspectRatio; 
-            
-            // 如果高度小于限制，强行修正高度并反推宽度
-            if (newHeight < limits.h) {
-                newHeight = limits.h;
-                newWidth = newHeight * aspectRatio;
-            }
-
-            const widthChange = newWidth - transformStart.initialWidth; 
-            const heightChange = newHeight - transformStart.initialHeight; 
-            setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, scale: ['note','dossier','scrap'].includes(n.type) ? (newWidth/(transformStart.initialWidth/transformStart.initialScale)) : undefined, x: transformStart.initialX - (widthChange / 2), y: transformStart.initialY - (heightChange / 2) } : n)); 
-        } else { 
-            let newWidth = transformStart.initialWidth; 
-            let newHeight = transformStart.initialHeight; 
-            let newX = transformStart.initialX; 
-            let newY = transformStart.initialY; 
-            
-            if (mode === 'LEFT') { 
-                newWidth = Math.max(limits.w, transformStart.initialWidth - localDx); 
-                newX = transformStart.initialX + (transformStart.initialWidth - newWidth); 
-            } else if (mode === 'RIGHT') { 
-                newWidth = Math.max(limits.w, transformStart.initialWidth + localDx); 
-            } else if (mode === 'TOP') { 
-                // 🟢 向上拉伸：限制高度，并确保 Y 轴位置正确锁定
-                newHeight = Math.max(limits.h, transformStart.initialHeight - localDy); 
-                newY = (transformStart.initialY + transformStart.initialHeight) - newHeight;
-            } else if (mode === 'BOTTOM') { 
-                // 🟢 向下拉伸：限制高度
-                newHeight = Math.max(limits.h, transformStart.initialHeight + localDy); 
-            } 
-            setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, x: newX, y: newY } : n)); 
-        } 
-        return;
+    if (resizingId && transformStart) { const note = notes.find(n => n.id === resizingId); if(!note) return; const mode = transformStart.resizeMode; const screenDx = e.clientX - transformStart.mouseX; const screenDy = e.clientY - transformStart.mouseY; const worldDx = screenDx / view.zoom; const worldDy = screenDy / view.zoom; const rad = -(transformStart.initialRotation * Math.PI) / 180; const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
+        if (mode === 'CORNER') { const aspectRatio = transformStart.initialWidth / transformStart.initialHeight; const avgWidthChange = (-localDx + localDy * aspectRatio) / 2; let newWidth = Math.max(30, transformStart.initialWidth + avgWidthChange); let newHeight = newWidth / aspectRatio; const widthChange = newWidth - transformStart.initialWidth; const heightChange = newHeight - transformStart.initialHeight; setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, scale: ['note','dossier','scrap'].includes(n.type) ? (newWidth/(transformStart.initialWidth/transformStart.initialScale)) : undefined, x: transformStart.initialX - (widthChange / 2), y: transformStart.initialY - (heightChange / 2) } : n)); }
+        else { let newWidth = transformStart.initialWidth; let newHeight = transformStart.initialHeight; let newX = transformStart.initialX; let newY = transformStart.initialY; const MIN_W = 30; const MIN_H = 30; if (mode === 'LEFT') { newWidth = Math.max(MIN_W, transformStart.initialWidth - localDx); newX = transformStart.initialX + localDx; } else if (mode === 'RIGHT') { newWidth = Math.max(MIN_W, transformStart.initialWidth + localDx); } else if (mode === 'TOP') { newHeight = Math.max(MIN_H, transformStart.initialHeight - localDy); newY = transformStart.initialY + localDy; } else if (mode === 'BOTTOM') { newHeight = Math.max(MIN_H, transformStart.initialHeight + localDy); } setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, x: newX, y: newY } : n)); } return;
     }
     const worldMouse = toWorld(e.clientX, e.clientY); if (connectingNodeId) setMousePos({ x: worldMouse.x, y: worldMouse.y }); 
   }, [isPanning, draggingId, connectingNodeId, view, toWorld, rotatingId, resizingId, transformStart, pinDragData, notes, selectionBox, selectedIds, ghostNote]); 
