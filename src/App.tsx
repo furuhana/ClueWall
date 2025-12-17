@@ -51,12 +51,8 @@ const App: React.FC = () => {
   const boardRef = useRef<HTMLDivElement>(null);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
 
-  // 🟢 关键：interactionRef 用于在闭包（如 useEffect）中访问最新的 state
   const interactionRef = useRef({ draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId });
-  useEffect(() => { 
-      interactionRef.current = { draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId }; 
-  }, [draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId]);
-  
+  useEffect(() => { interactionRef.current = { draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId }; }, [draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId]);
   const toWorld = useCallback((screenX: number, screenY: number) => { return { x: (screenX - view.x) / view.zoom, y: (screenY - view.y) / view.zoom }; }, [view]);
 
   // 1. 监听隐藏状态，触发 Toast
@@ -77,7 +73,6 @@ const App: React.FC = () => {
   };
 
   const handleDeleteNote = (id: string) => { 
-      // 如果删除了正在连线的点，取消连线状态
       if (connectingNodeId === id) setConnectingNodeId(null);
 
       const nextNotes = notes.filter(n => n.id !== id); 
@@ -102,26 +97,48 @@ const App: React.FC = () => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
           if (editingNodeId) return;
 
-          // 🚨 优先级 1：如果正在连线（手里拿着红线），按删除键 = 取消连线
-          if (interactionRef.current.connectingNodeId) {
-              setConnectingNodeId(null);
-              return; // 直接退出，保护 Note 不被删除
+          const { connectingNodeId: activeConnectingId, selectedIds: currentSelected, notes: currentNotes, connections: currentConns } = interactionRef.current;
+
+          // 🚨 修正逻辑：如果正在连线，说明用户想删掉这个“图钉” (Pin)
+          // 不是删便签，而是把这个便签上的图钉卸载掉
+          if (activeConnectingId) {
+              // 1. 修改 Note：把 hasPin 设为 false (保留 Note，只去图钉)
+              const nextNotes = currentNotes.map(n => 
+                  n.id === activeConnectingId ? { ...n, hasPin: false } : n
+              );
+
+              // 2. 清理连线：既然图钉没了，连在上面的线也应该断开 (逻辑上图钉没了线也没法连)
+              const nextConns = currentConns.filter(c => c.sourceId !== activeConnectingId && c.targetId !== activeConnectingId);
+
+              // 3. 更新状态
+              setNotes(nextNotes);
+              setConnections(nextConns);
+              setConnectingNodeId(null); // 退出连线模式
+              setSelectedIds(new Set()); // 清空选区
+
+              // 4. 同步云端
+              const changedNote = nextNotes.find(n => n.id === activeConnectingId);
+              if (changedNote) saveToCloud([changedNote], []); // 更新 Note 状态到云端
+
+              // 删除被移除的线
+              const deletedConns = currentConns.filter(c => c.sourceId === activeConnectingId || c.targetId === activeConnectingId);
+              deletedConns.forEach(c => deleteFromCloud(undefined, c.id));
+              
+              return; // 结束，不执行下面的选中删除逻辑
           }
 
-          // 🚨 优先级 2：如果选中了便签，则删除便签
-          const currentSelected = interactionRef.current.selectedIds;
-          
+          // 如果没在连线，执行正常的选中删除 (删除图层)
           if (currentSelected.size > 0) {
               const idsArray = Array.from(currentSelected);
-              const nextNotes = interactionRef.current.notes.filter(n => !currentSelected.has(n.id));
-              const nextConns = interactionRef.current.connections.filter(c => !currentSelected.has(c.sourceId) && !currentSelected.has(c.targetId));
+              const nextNotes = currentNotes.filter(n => !currentSelected.has(n.id));
+              const nextConns = currentConns.filter(c => !currentSelected.has(c.sourceId) && !currentSelected.has(c.targetId));
               
               setNotes(nextNotes);
               setConnections(nextConns);
               setSelectedIds(new Set());
 
               idsArray.forEach(id => deleteFromCloud(id));
-              const deletedConns = interactionRef.current.connections.filter(c => currentSelected.has(c.sourceId) || currentSelected.has(c.targetId));
+              const deletedConns = currentConns.filter(c => currentSelected.has(c.sourceId) || currentSelected.has(c.targetId));
               deletedConns.forEach(c => deleteFromCloud(undefined, c.id));
           }
       }
@@ -266,9 +283,7 @@ const App: React.FC = () => {
       e.stopPropagation(); 
       e.preventDefault(); 
       
-      // 🟢 修复：这里去掉了 setSelectedIds(new Set([id]))
-      // 操作图钉就是操作图钉，不要选中 Note 本身，防止误删图层
-      
+      // 操作图钉时，不需要选中图层
       const note = notes.find(n => n.id === id); 
       if (!note) return; 
       const { width, height } = getNoteDimensions(note); 
@@ -404,10 +419,7 @@ const App: React.FC = () => {
 
   const handlePinClick = (e: React.MouseEvent, id: string) => { 
       e.stopPropagation(); 
-      
-      // 🟢 修复：这里去掉了 setSelectedIds(new Set([id]))
-      // 确保点击图钉只负责连线，不负责选中便签，防止按 Delete 误删
-
+      // 保持之前的逻辑：点击图钉不选中 Note
       if (isPinDragRef.current) { isPinDragRef.current = false; return; } 
       if (isPinMode) { setIsPinMode(false); setConnectingNodeId(id); return; } 
       if (connectingNodeId === null) { 
