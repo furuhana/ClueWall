@@ -14,6 +14,9 @@ interface TransformStartData { mouseX: number; mouseY: number; initialRotation: 
 interface PinDragData { noteId: string; startX: number; startY: number; initialPinX: number; initialPinY: number; rotation: number; width: number; height: number; }
 interface SelectionBox { startX: number; startY: number; currentX: number; currentY: number; }
 
+// 🟢 新增：定义可用的笔记类型列表，用于幽灵模式切换
+const NOTE_TYPES: Note['type'][] = ['note', 'photo', 'dossier', 'scrap', 'marker'];
+
 const App: React.FC = () => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -44,6 +47,10 @@ const App: React.FC = () => {
   const [isUIHidden, setIsUIHidden] = useState<boolean>(true); 
   const [showHiddenModeToast, setShowHiddenModeToast] = useState(false);
   
+  // 🟢 新增：幽灵模式状态 (用于双击新建)
+  // 存储：世界坐标 x, y 和当前选中的类型索引 typeIndex
+  const [ghostNote, setGhostNote] = useState<{ x: number; y: number; typeIndex: number } | null>(null);
+
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const dragCounter = useRef(0);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
@@ -51,8 +58,8 @@ const App: React.FC = () => {
   const boardRef = useRef<HTMLDivElement>(null);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
 
-  const interactionRef = useRef({ draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId });
-  useEffect(() => { interactionRef.current = { draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId }; }, [draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId]);
+  const interactionRef = useRef({ draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId, ghostNote });
+  useEffect(() => { interactionRef.current = { draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId, ghostNote }; }, [draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId, ghostNote]);
   const toWorld = useCallback((screenX: number, screenY: number) => { return { x: (screenX - view.x) / view.zoom, y: (screenY - view.y) / view.zoom }; }, [view]);
 
   // 1. 监听隐藏状态，触发 Toast
@@ -93,12 +100,28 @@ const App: React.FC = () => {
   // 3. 全局键盘监听
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // 🟢 幽灵模式下的键盘控制
+      if (interactionRef.current.ghostNote) {
+          if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+              setGhostNote(prev => prev ? { ...prev, typeIndex: (prev.typeIndex + 1) % NOTE_TYPES.length } : null);
+              return;
+          }
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+              setGhostNote(prev => prev ? { ...prev, typeIndex: (prev.typeIndex - 1 + NOTE_TYPES.length) % NOTE_TYPES.length } : null);
+              return;
+          }
+          if (e.key === 'Enter') {
+              // 按回车也可以确认创建
+              confirmGhostCreation();
+              return;
+          }
+      }
+
       if (e.key === 'Delete' || e.key === 'Backspace') {
           if (editingNodeId) return;
 
           const { connectingNodeId: activeConnectingId, selectedIds: currentSelected, notes: currentNotes, connections: currentConns } = interactionRef.current;
 
-          // 🚨 如果正在连线，删除图钉（保留 Note）
           if (activeConnectingId) {
               const nextNotes = currentNotes.map(n => 
                   n.id === activeConnectingId ? { ...n, hasPin: false } : n
@@ -115,11 +138,9 @@ const App: React.FC = () => {
 
               const deletedConns = currentConns.filter(c => c.sourceId === activeConnectingId || c.targetId === activeConnectingId);
               deletedConns.forEach(c => deleteFromCloud(undefined, c.id));
-              
               return; 
           }
 
-          // 🚨 正常删除
           if (currentSelected.size > 0) {
               const idsArray = Array.from(currentSelected);
               const nextNotes = currentNotes.filter(n => !currentSelected.has(n.id));
@@ -136,6 +157,12 @@ const App: React.FC = () => {
       }
 
       if (e.key === 'Escape') {
+        // 🟢 ESC 也要能退出幽灵模式
+        if (interactionRef.current.ghostNote) {
+            setGhostNote(null);
+            return;
+        }
+
         if (isUIHidden) {
              setIsUIHidden(false); 
         } else {
@@ -230,9 +257,36 @@ const App: React.FC = () => {
       cancelAnimation(); animationFrameRef.current = requestAnimationFrame(animate);
   };
 
-  const handleWheel = (e: React.WheelEvent) => { if (editingNodeId) return; cancelAnimation(); const delta = -e.deltaY * 0.001; const newZoom = Math.min(Math.max(0.1, view.zoom + delta), 3.0); const worldMouse = toWorld(e.clientX, e.clientY); setView({ x: e.clientX - worldMouse.x * newZoom, y: e.clientY - worldMouse.y * newZoom, zoom: newZoom }); };
+  const handleWheel = (e: React.WheelEvent) => { 
+      // 🟢 幽灵模式下，滚轮切换类型
+      if (ghostNote) {
+          const direction = e.deltaY > 0 ? 1 : -1;
+          setGhostNote(prev => {
+              if (!prev) return null;
+              // 循环切换
+              const nextIndex = (prev.typeIndex + direction + NOTE_TYPES.length) % NOTE_TYPES.length;
+              return { ...prev, typeIndex: nextIndex };
+          });
+          return;
+      }
+
+      if (editingNodeId) return; 
+      cancelAnimation(); 
+      const delta = -e.deltaY * 0.001; 
+      const newZoom = Math.min(Math.max(0.1, view.zoom + delta), 3.0); 
+      const worldMouse = toWorld(e.clientX, e.clientY); 
+      setView({ x: e.clientX - worldMouse.x * newZoom, y: e.clientY - worldMouse.y * newZoom, zoom: newZoom }); 
+  };
   
   const handleBackgroundMouseDown = (e: React.MouseEvent) => {
+    // 🟢 幽灵模式下，左键点击 = 确认创建
+    if (ghostNote) {
+        if (e.button === 0) {
+            confirmGhostCreation();
+        }
+        return; 
+    }
+
     cancelAnimation();
     if (e.button === 1 || isSpacePressed) {
         e.preventDefault(); setIsPanning(true); lastMousePosRef.current = { x: e.clientX, y: e.clientY };
@@ -242,7 +296,64 @@ const App: React.FC = () => {
     }
   };
 
+  // 🟢 新增：双击背景触发幽灵模式
+  const handleBackgroundDoubleClick = (e: React.MouseEvent) => {
+      // 只有点在背景上才触发，且当前没有别的操作
+      if (e.target === boardRef.current && !isPanning && !draggingId) {
+          const worldPos = toWorld(e.clientX, e.clientY);
+          // 初始化幽灵，默认类型索引为 0 (note)
+          setGhostNote({ x: worldPos.x, y: worldPos.y, typeIndex: 0 });
+      }
+  };
+
+  // 🟢 新增：确认创建幽灵笔记的逻辑
+  const confirmGhostCreation = () => {
+      if (!ghostNote) return;
+      
+      const type = NOTE_TYPES[ghostNote.typeIndex];
+      const id = `new-${Date.now()}`;
+      
+      // 复用之前的 addNote 逻辑，但坐标使用 ghostNote 的坐标
+      let width = 256; let height = 160; 
+      if (type === 'photo') height = 280; 
+      else if (type === 'dossier') height = 224; 
+      else if (type === 'scrap') { width = 257; height = 50; } 
+      else if (type === 'marker') { width = 30; height = 30; } 
+      
+      let content = 'New Clue'; 
+      if (type === 'photo') content = 'New Evidence'; 
+      else if (type === 'scrap') content = 'Scrap note...'; 
+      else if (type === 'marker') { const existingMarkers = notes.filter(n => n.type === 'marker'); content = (existingMarkers.length + 1).toString(); } 
+      
+      const newNote: Note = { 
+          id, 
+          type, 
+          content, 
+          x: ghostNote.x, // 使用幽灵坐标
+          y: ghostNote.y, 
+          zIndex: maxZIndex + 1, 
+          rotation: (Math.random() * 10) - 5, 
+          fileId: type === 'photo' ? '/photo_1.png' : undefined, 
+          hasPin: false, 
+          scale: 1, 
+          width, 
+          height 
+      }; 
+      
+      const nextNotes = [...notes, newNote]; 
+      setMaxZIndex(prev => prev + 1); 
+      setNotes(nextNotes); 
+      setSelectedIds(new Set([id])); 
+      saveToCloud(nextNotes, connections);
+      
+      // 关闭幽灵模式
+      setGhostNote(null);
+  };
+
+  // 保留原有的 handleBackgroundClick 用于清除选区，但在幽灵模式下不执行
   const handleBackgroundClick = (e: React.MouseEvent) => {
+    if (ghostNote) return; // 如果是幽灵模式，Click 由 MouseDown 处理了
+
     if (!isPanning && !selectionBox && (e.target === boardRef.current)) { 
         setConnectingNodeId(null); setSelectedIds(new Set()); setIsPinMode(false); 
     }
@@ -284,6 +395,13 @@ const App: React.FC = () => {
     if (e.button === 1 || isSpacePressed) return; 
     e.stopPropagation(); 
     
+    // 🟢 如果正在幽灵模式，点到了节点上，也应该取消幽灵模式（或者确认？）
+    // 这里选择取消，因为用户可能想去点别的
+    if (ghostNote) {
+        setGhostNote(null);
+        return;
+    }
+
     if (isPinMode || connectingNodeId) {
         const targetNote = notes.find(n => n.id === id); if (!targetNote) return;
         const rect = e.currentTarget.getBoundingClientRect();
@@ -334,6 +452,9 @@ const App: React.FC = () => {
   };
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    // 幽灵模式下移动鼠标不触发任何逻辑
+    if (ghostNote) return;
+
     if (selectionBox) {
         const currentX = e.clientX; 
         const currentY = e.clientY;
@@ -395,7 +516,7 @@ const App: React.FC = () => {
         else { let newWidth = transformStart.initialWidth; let newHeight = transformStart.initialHeight; let newX = transformStart.initialX; let newY = transformStart.initialY; const MIN_W = 30; const MIN_H = 30; if (mode === 'LEFT') { newWidth = Math.max(MIN_W, transformStart.initialWidth - localDx); newX = transformStart.initialX + localDx; } else if (mode === 'RIGHT') { newWidth = Math.max(MIN_W, transformStart.initialWidth + localDx); } else if (mode === 'TOP') { newHeight = Math.max(MIN_H, transformStart.initialHeight - localDy); newY = transformStart.initialY + localDy; } else if (mode === 'BOTTOM') { newHeight = Math.max(MIN_H, transformStart.initialHeight + localDy); } setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, x: newX, y: newY } : n)); } return;
     }
     const worldMouse = toWorld(e.clientX, e.clientY); if (connectingNodeId) setMousePos({ x: worldMouse.x, y: worldMouse.y }); 
-  }, [isPanning, draggingId, connectingNodeId, view, toWorld, rotatingId, resizingId, transformStart, pinDragData, notes, selectionBox, selectedIds]); 
+  }, [isPanning, draggingId, connectingNodeId, view, toWorld, rotatingId, resizingId, transformStart, pinDragData, notes, selectionBox, selectedIds, ghostNote]); 
 
   const handleMouseUp = () => {
     if (draggingId) {
@@ -429,6 +550,8 @@ const App: React.FC = () => {
 
   const handleUpdateConnectionColor = (id: string, color: string) => { const nextConns = connections.map(c => c.id === id ? { ...c, color } : c); setConnections(nextConns); saveToCloud(notes, nextConns); };
   const handleStartPinFromCorner = (id: string) => setIsPinMode(true);
+  
+  // 原有的 addNote，保留用于 UI 按钮调用
   const addNote = (type: Note['type']) => { const centerX = window.innerWidth / 2; const centerY = window.innerHeight / 2; const worldPos = toWorld(centerX, centerY); const x = worldPos.x + (Math.random() * 100 - 50); const y = worldPos.y + (Math.random() * 100 - 50); const id = `new-${Date.now()}`; let width = 256; let height = 160; if (type === 'photo') height = 280; else if (type === 'dossier') height = 224; else if (type === 'scrap') { width = 257; height = 50; } else if (type === 'marker') { width = 30; height = 30; } let content = 'New Clue'; if (type === 'photo') content = 'New Evidence'; else if (type === 'scrap') content = 'Scrap note...'; else if (type === 'marker') { const existingMarkers = notes.filter(n => n.type === 'marker'); content = (existingMarkers.length + 1).toString(); } const newNote: Note = { id, type, content, x, y, zIndex: maxZIndex + 1, rotation: (Math.random() * 10) - 5, fileId: type === 'photo' ? '/photo_1.png' : undefined, hasPin: false, scale: 1, width, height }; const nextNotes = [...notes, newNote]; setMaxZIndex(prev => prev + 1); setNotes(nextNotes); setSelectedIds(new Set([id])); saveToCloud(nextNotes, connections); };
   const clearBoard = async () => { if(window.confirm("Burn all evidence?")) { setNotes([]); setConnections([]); await supabase.from('notes').delete().neq('id', '0'); await supabase.from('connections').delete().neq('id', '0'); } };
   const handleDoubleClick = (id: string) => { if (!isPinMode && !connectingNodeId) setEditingNodeId(id); };
@@ -453,7 +576,8 @@ const App: React.FC = () => {
   useEffect(() => { const globalUp = () => handleMouseUp(); window.addEventListener('mouseup', globalUp); return () => window.removeEventListener('mouseup', globalUp); }, [isPanning, draggingId, rotatingId, resizingId, pinDragData, notes, connections, selectedIds]);
 
   return (
-    <div ref={boardRef} className={`w-screen h-screen relative overflow-hidden select-none ${isSpacePressed || isPanning ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`} style={{ backgroundImage: `url("${GRID_URL}"), linear-gradient(180deg, #A38261 22.65%, #977049 100%)`, backgroundPosition: `${view.x}px ${view.y}px, 0 0`, backgroundSize: `${30 * view.zoom}px ${30 * view.zoom}px, 100% 100%`, backgroundRepeat: 'repeat, no-repeat', backgroundColor: '#A38261' }} onWheel={handleWheel} onMouseDown={handleBackgroundMouseDown} onMouseMove={handleMouseMove} onClick={handleBackgroundClick} onDrop={handleDrop} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver}>
+    // 🟢 绑定 onDoubleClick 事件到最外层
+    <div ref={boardRef} className={`w-screen h-screen relative overflow-hidden select-none ${isSpacePressed || isPanning ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`} style={{ backgroundImage: `url("${GRID_URL}"), linear-gradient(180deg, #A38261 22.65%, #977049 100%)`, backgroundPosition: `${view.x}px ${view.y}px, 0 0`, backgroundSize: `${30 * view.zoom}px ${30 * view.zoom}px, 100% 100%`, backgroundRepeat: 'repeat, no-repeat', backgroundColor: '#A38261' }} onWheel={handleWheel} onMouseDown={handleBackgroundMouseDown} onMouseMove={handleMouseMove} onClick={handleBackgroundClick} onDoubleClick={handleBackgroundDoubleClick} onDrop={handleDrop} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver}>
       <style>{`.animate-dash { stroke-dasharray: 8 4 !important; }`}</style>
       <audio ref={audioRef} src="/home_bgm.mp3" loop />
       {isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-3 bg-black/70 backdrop-blur-md text-white/90 px-4 py-2 rounded-full border border-white/10 shadow-lg pointer-events-none"><Loader2 className="animate-spin text-yellow-400" size={16} /><span className="font-mono text-xs tracking-wider">SYNCING...</span></div>}
@@ -495,6 +619,24 @@ const App: React.FC = () => {
           ))}
           <ConnectionLayer connections={connections} notes={notes} connectingNodeId={connectingNodeId} mousePos={mousePos} onDeleteConnection={handleDeleteConnection} onPinClick={handlePinClick} isPinMode={isPinMode} onConnectionColorChange={handleUpdateConnectionColor} onPinMouseDown={handlePinMouseDown} />
           
+          {/* 🟢 幽灵模式的“幽灵”显示 */}
+          {ghostNote && (
+              <div style={{ position: 'absolute', left: ghostNote.x, top: ghostNote.y, transform: 'translate(-50%, -50%)', zIndex: 20000, pointerEvents: 'none' }}>
+                  <div className="flex flex-col items-center justify-center animate-in fade-in zoom-in duration-150">
+                      {/* 幽灵圆圈 */}
+                      <div className="w-24 h-24 rounded-full border-4 border-white/50 bg-black/40 backdrop-blur-sm flex items-center justify-center shadow-xl">
+                          <Plus size={48} className="text-white/80" />
+                      </div>
+                      {/* 类型标签 */}
+                      <div className="mt-4 bg-black/80 text-white px-4 py-1 rounded-full font-bold uppercase tracking-widest text-sm border border-white/20">
+                          {NOTE_TYPES[ghostNote.typeIndex]}
+                      </div>
+                      {/* 操作提示 */}
+                      <div className="mt-1 text-white/50 text-[10px] font-mono">SCROLL TO SWITCH</div>
+                  </div>
+              </div>
+          )}
+
           {/* 🟢 修复3：恢复数值覆盖层 + 🟢 新增：图钉坐标显示 */}
           {draggingId && selectedIds.size <= 1 && (() => { const n = notes.find(i => i.id === draggingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">X: {Math.round(n.x)}, Y: {Math.round(n.y)}</div></div> })()}
           {rotatingId && (() => { const n = notes.find(i => i.id === rotatingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{Math.round(n.rotation)}°</div></div> })()}
