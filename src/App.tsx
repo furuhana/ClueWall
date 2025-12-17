@@ -108,6 +108,11 @@ const App: React.FC = () => {
               setConnections(nextConns);
               setSelectedIds(new Set());
 
+              // 🟢 如果删除了正在连线的点，必须取消连线状态，否则会报错
+              if (connectingNodeId && currentSelected.has(connectingNodeId)) {
+                  setConnectingNodeId(null);
+              }
+
               // 同步云端
               idsArray.forEach(id => deleteFromCloud(id));
               // 找到被删除的连线并同步
@@ -150,7 +155,7 @@ const App: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [isUIHidden, editingNodeId]); // 依赖 isUIHidden 和 editingNodeId
+  }, [isUIHidden, editingNodeId, connectingNodeId]); // 🟢 添加 connectingNodeId 依赖
 
   // 实时订阅
   useEffect(() => {
@@ -254,7 +259,19 @@ const App: React.FC = () => {
       setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth: dims.width, initialHeight: dims.height, initialX: note.x, initialY: note.y, initialScale: note.scale || 1, resizeMode: mode }); 
   };
 
-  const handlePinMouseDown = (e: React.MouseEvent, id: string) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if (!note) return; const { width, height } = getNoteDimensions(note); isPinDragRef.current = false; setPinDragData({ noteId: id, startX: e.clientX, startY: e.clientY, initialPinX: note.pinX ?? width / 2, initialPinY: note.pinY ?? 10, rotation: note.rotation, width, height }); };
+  const handlePinMouseDown = (e: React.MouseEvent, id: string) => { 
+      e.stopPropagation(); 
+      e.preventDefault(); 
+      
+      // 🟢 修复：操作图钉时，强制选中该 Note，这样 Delete 键才能生效
+      setSelectedIds(new Set([id]));
+
+      const note = notes.find(n => n.id === id); 
+      if (!note) return; 
+      const { width, height } = getNoteDimensions(note); 
+      isPinDragRef.current = false; 
+      setPinDragData({ noteId: id, startX: e.clientX, startY: e.clientY, initialPinX: note.pinX ?? width / 2, initialPinY: note.pinY ?? 10, rotation: note.rotation, width, height }); 
+  };
   
   const handleNodeMouseDown = (e: React.MouseEvent, id: string) => {
     if (e.button === 1 || isSpacePressed) return; 
@@ -382,7 +399,31 @@ const App: React.FC = () => {
     setIsPanning(false); setDraggingId(null); setRotatingId(null); setResizingId(null); setTransformStart(null); setPinDragData(null); setSelectionBox(null); lastMousePosRef.current = null; lastDragPosRef.current = null;
   };
 
-  const handlePinClick = (e: React.MouseEvent, id: string) => { e.stopPropagation(); if (isPinDragRef.current) { isPinDragRef.current = false; return; } if (isPinMode) { setIsPinMode(false); setConnectingNodeId(id); return; } if (connectingNodeId === null) { setConnectingNodeId(id); } else { if (connectingNodeId !== id) { const nextConns = [...connections]; const exists = nextConns.some(c => (c.sourceId === connectingNodeId && c.targetId === id) || (c.sourceId === id && c.targetId === connectingNodeId)); if (!exists) { const newConn = { id: `c-${Date.now()}-${Math.random()}`, sourceId: connectingNodeId, targetId: id, color: '#D43939' }; const finalConns = [...nextConns, newConn]; setConnections(finalConns); saveToCloud(notes, finalConns); } } setConnectingNodeId(null); } };
+  const handlePinClick = (e: React.MouseEvent, id: string) => { 
+      e.stopPropagation(); 
+      
+      // 🟢 修复：点击图钉时，强制选中该 Note，让 Delete 键生效
+      setSelectedIds(new Set([id]));
+
+      if (isPinDragRef.current) { isPinDragRef.current = false; return; } 
+      if (isPinMode) { setIsPinMode(false); setConnectingNodeId(id); return; } 
+      if (connectingNodeId === null) { 
+          setConnectingNodeId(id); 
+      } else { 
+          if (connectingNodeId !== id) { 
+              const nextConns = [...connections]; 
+              const exists = nextConns.some(c => (c.sourceId === connectingNodeId && c.targetId === id) || (c.sourceId === id && c.targetId === connectingNodeId)); 
+              if (!exists) { 
+                  const newConn = { id: `c-${Date.now()}-${Math.random()}`, sourceId: connectingNodeId, targetId: id, color: '#D43939' }; 
+                  const finalConns = [...nextConns, newConn]; 
+                  setConnections(finalConns); 
+                  saveToCloud(notes, finalConns); 
+              } 
+          } 
+          setConnectingNodeId(null); 
+      } 
+  };
+
   const handleUpdateConnectionColor = (id: string, color: string) => { const nextConns = connections.map(c => c.id === id ? { ...c, color } : c); setConnections(nextConns); saveToCloud(notes, nextConns); };
   const handleStartPinFromCorner = (id: string) => setIsPinMode(true);
   const addNote = (type: Note['type']) => { const centerX = window.innerWidth / 2; const centerY = window.innerHeight / 2; const worldPos = toWorld(centerX, centerY); const x = worldPos.x + (Math.random() * 100 - 50); const y = worldPos.y + (Math.random() * 100 - 50); const id = `new-${Date.now()}`; let width = 256; let height = 160; if (type === 'photo') height = 280; else if (type === 'dossier') height = 224; else if (type === 'scrap') { width = 257; height = 50; } else if (type === 'marker') { width = 30; height = 30; } let content = 'New Clue'; if (type === 'photo') content = 'New Evidence'; else if (type === 'scrap') content = 'Scrap note...'; else if (type === 'marker') { const existingMarkers = notes.filter(n => n.type === 'marker'); content = (existingMarkers.length + 1).toString(); } const newNote: Note = { id, type, content, x, y, zIndex: maxZIndex + 1, rotation: (Math.random() * 10) - 5, fileId: type === 'photo' ? '/photo_1.png' : undefined, hasPin: false, scale: 1, width, height }; const nextNotes = [...notes, newNote]; setMaxZIndex(prev => prev + 1); setNotes(nextNotes); setSelectedIds(new Set([id])); saveToCloud(nextNotes, connections); };
@@ -402,7 +443,8 @@ const App: React.FC = () => {
 
   const handleUpdateNodeSize = (id: string, width: number, height: number) => { if (resizingId === id) return; setNotes(prev => prev.map(n => n.id === id ? { ...n, width, height } : n)); };
   const isUIHiddenRef = useRef(isUIHidden); useEffect(() => { isUIHiddenRef.current = isUIHidden; }, [isUIHidden]);
-  
+  useEffect(() => { const t = setTimeout(() => { if (isUIHiddenRef.current) setShowHiddenModeToast(true); }, 1000); return () => clearTimeout(t); }, []); 
+  useEffect(() => { if (showHiddenModeToast) { const t = setTimeout(() => setShowHiddenModeToast(false), 3000); return () => clearTimeout(t); } }, [showHiddenModeToast]);
   useEffect(() => { if (audioRef.current) { audioRef.current.volume = 0.5; audioRef.current.play().then(() => setIsMusicPlaying(true)).catch(() => setIsMusicPlaying(false)); } }, []);
   const toggleMusic = () => { if (!audioRef.current) return; if (isMusicPlaying) { audioRef.current.pause(); setIsMusicPlaying(false); } else { audioRef.current.play().then(() => setIsMusicPlaying(true)); } };
   useEffect(() => { const globalUp = () => handleMouseUp(); window.addEventListener('mouseup', globalUp); return () => window.removeEventListener('mouseup', globalUp); }, [isPanning, draggingId, rotatingId, resizingId, pinDragData, notes, connections, selectedIds]);
@@ -424,6 +466,7 @@ const App: React.FC = () => {
       {connectingNodeId && !isUIHidden && <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[9999] bg-red-600 text-white px-6 py-2 rounded-full shadow-xl animate-bounce font-bold pointer-events-none">Connecting Evidence...</div>}
       {isDraggingFile && <div className="absolute inset-0 bg-black/60 z-[10000] flex items-center justify-center border-8 border-dashed border-gray-400 m-4 rounded-xl pointer-events-none"><div className="bg-gray-800 text-white px-8 py-6 rounded-xl shadow-2xl flex flex-col items-center gap-4 animate-bounce"><UploadCloud size={64} className="text-blue-400"/><h2 className="text-2xl font-bold uppercase tracking-widest">Drop Evidence File</h2></div></div>}
 
+      {/* 🟢 选框层 */}
       {selectionBox && (
           <div style={{ position: 'absolute', left: Math.min(selectionBox.startX, selectionBox.currentX), top: Math.min(selectionBox.startY, selectionBox.currentY), width: Math.abs(selectionBox.currentX - selectionBox.startX), height: Math.abs(selectionBox.currentY - selectionBox.startY), backgroundColor: 'rgba(59, 130, 246, 0.2)', border: '1px solid #3b82f6', zIndex: 9999, pointerEvents: 'none' }} />
       )}
@@ -449,6 +492,7 @@ const App: React.FC = () => {
           ))}
           <ConnectionLayer connections={connections} notes={notes} connectingNodeId={connectingNodeId} mousePos={mousePos} onDeleteConnection={handleDeleteConnection} onPinClick={handlePinClick} isPinMode={isPinMode} onConnectionColorChange={handleUpdateConnectionColor} onPinMouseDown={handlePinMouseDown} />
           
+          {/* 🟢 修复3：恢复数值覆盖层 */}
           {draggingId && selectedIds.size <= 1 && (() => { const n = notes.find(i => i.id === draggingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">X: {Math.round(n.x)}, Y: {Math.round(n.y)}</div></div> })()}
           {rotatingId && (() => { const n = notes.find(i => i.id === rotatingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{Math.round(n.rotation)}°</div></div> })()}
           {resizingId && transformStart && (() => {
