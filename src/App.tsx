@@ -500,7 +500,7 @@ const App: React.FC = () => {
             note: { w: 106, h: 160 },
             photo: { w: 124, h: 140 },
             scrap: { w: 146, h: 50 },
-            dossier: { w: 256, h: 182 },
+            dossier: { w: 256, h: 224 },
             marker: { w: 30, h: 30 },
         };
         // 获取当前便签的限制，如果没有则默认 50x50
