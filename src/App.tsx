@@ -570,7 +570,43 @@ const App: React.FC = () => {
 
   const handleUpdateConnectionColor = (id: string, color: string) => { const nextConns = connections.map(c => c.id === id ? { ...c, color } : c); setConnections(nextConns); saveToCloud(notes, nextConns); };
   const handleStartPinFromCorner = (id: string) => setIsPinMode(true);
-  const addNote = (type: Note['type']) => { const centerX = window.innerWidth / 2; const centerY = window.innerHeight / 2; const worldPos = toWorld(centerX, centerY); const x = worldPos.x + (Math.random() * 100 - 50); const y = worldPos.y + (Math.random() * 100 - 50); const id = `new-${Date.now()}`; let width = 256; let height = 160; if (type === 'photo') height = 280; else if (type === 'dossier') height = 224; else if (type === 'scrap') { width = 257; height = 50; } else if (type === 'marker') { width = 30; height = 30; } let content = 'New Clue'; if (type === 'photo') content = 'New Evidence'; else if (type === 'scrap') content = 'Scrap note...'; else if (type === 'marker') { const existingMarkers = notes.filter(n => n.type === 'marker'); content = (existingMarkers.length + 1).toString(); } const newNote: Note = { id, type, content, x, y, zIndex: maxZIndex + 1, rotation: (Math.random() * 10) - 5, fileId: type === 'photo' ? '/photo_1.png' : undefined, hasPin: false, scale: 1, width, height }; const nextNotes = [...notes, newNote]; setMaxZIndex(prev => prev + 1); setNotes(nextNotes); setSelectedIds(new Set([id])); saveToCloud(nextNotes, connections); };
+  
+  // 🟢 修复3：addNote 逻辑重写 - 使用函数式更新防止状态覆盖，且只上传新数据防止回滚
+  const addNote = (type: Note['type']) => { 
+      const centerX = window.innerWidth / 2; 
+      const centerY = window.innerHeight / 2; 
+      const worldPos = toWorld(centerX, centerY); 
+      // 随机偏移防止重叠
+      const x = worldPos.x + (Math.random() * 60 - 30); 
+      const y = worldPos.y + (Math.random() * 60 - 30); 
+      
+      const id = `new-${Date.now()}`; 
+      let width = 256; let height = 160; 
+      if (type === 'photo') height = 280; 
+      else if (type === 'dossier') height = 224; 
+      else if (type === 'scrap') { width = 257; height = 50; } 
+      else if (type === 'marker') { width = 30; height = 30; } 
+      
+      let content = 'New Clue'; 
+      if (type === 'photo') content = 'New Evidence'; 
+      else if (type === 'scrap') content = 'Scrap note...'; 
+      else if (type === 'marker') { const existingMarkers = notes.filter(n => n.type === 'marker'); content = (existingMarkers.length + 1).toString(); } 
+      
+      const newNote: Note = { 
+          id, type, content, x, y, 
+          zIndex: maxZIndex + 1, rotation: (Math.random() * 6) - 3, 
+          fileId: type === 'photo' ? '/photo_1.png' : undefined, hasPin: false, scale: 1, width, height 
+      }; 
+      
+      setMaxZIndex(prev => prev + 1); 
+      // 关键：基于 prev 更新，保证不丢数据
+      setNotes(prev => [...prev, newNote]); 
+      setSelectedIds(new Set([id])); 
+      
+      // 关键：只传新数据到云端
+      saveToCloud([newNote], []); 
+  };
+
   const clearBoard = async () => { if(window.confirm("Burn all evidence?")) { setNotes([]); setConnections([]); await supabase.from('notes').delete().neq('id', '0'); await supabase.from('connections').delete().neq('id', '0'); } };
   const handleDoubleClick = (id: string) => { if (!isPinMode && !connectingNodeId) setEditingNodeId(id); };
   const handleSaveNote = (updatedNote: Note) => { setNotes(prev => prev.map(n => n.id === updatedNote.id ? updatedNote : n)); setEditingNodeId(null); saveToCloud([updatedNote], []); };
@@ -608,8 +644,9 @@ const App: React.FC = () => {
       {!isUIHidden && (
         <div 
           className="absolute top-4 left-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto"
-          // 🟢 修复3：阻止事件冒泡，修复按钮点击无效问题
+          // 🟢 修复4：彻底阻断事件冒泡，防止点击按钮时触发背景的“取消选中”逻辑
           onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}
         >
           <div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-float border border-white/10 max-w-sm"><h1 className="text-xl font-bold font-handwriting mb-1 text-red-500">CASE #2023-X</h1><div className="flex flex-col gap-2"><button onClick={() => setIsPinMode(!isPinMode)} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600'}`}><MapPin size={16} /> {isPinMode ? 'DONE' : 'PIN TOOL'}</button><div className="grid grid-cols-2 gap-2 mt-2"><button onClick={() => addNote('note')} className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs">Add Note</button><button onClick={() => addNote('photo')} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button><button onClick={() => addNote('dossier')} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button><button onClick={() => addNote('scrap')} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button><button onClick={() => addNote('marker')} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button><button onClick={clearBoard} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1"><Trash2 size={12}/> Clear</button></div></div></div>
