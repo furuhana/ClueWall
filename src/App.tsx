@@ -90,44 +90,36 @@ const App: React.FC = () => {
       deleteFromCloud(undefined, id); 
   };
 
-  // 3. 🟢 全局键盘监听 (ESC, Space, Delete)
+  // 3. 全局键盘监听
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 🟢 Delete / Backspace 删除逻辑
       if (e.key === 'Delete' || e.key === 'Backspace') {
           if (editingNodeId) return;
 
           const { connectingNodeId: activeConnectingId, selectedIds: currentSelected, notes: currentNotes, connections: currentConns } = interactionRef.current;
 
-          // 🚨 修正逻辑：如果正在连线，说明用户想删掉这个“图钉” (Pin)
-          // 不是删便签，而是把这个便签上的图钉卸载掉
+          // 🚨 如果正在连线，删除图钉（保留 Note）
           if (activeConnectingId) {
-              // 1. 修改 Note：把 hasPin 设为 false (保留 Note，只去图钉)
               const nextNotes = currentNotes.map(n => 
                   n.id === activeConnectingId ? { ...n, hasPin: false } : n
               );
-
-              // 2. 清理连线：既然图钉没了，连在上面的线也应该断开 (逻辑上图钉没了线也没法连)
               const nextConns = currentConns.filter(c => c.sourceId !== activeConnectingId && c.targetId !== activeConnectingId);
 
-              // 3. 更新状态
               setNotes(nextNotes);
               setConnections(nextConns);
-              setConnectingNodeId(null); // 退出连线模式
-              setSelectedIds(new Set()); // 清空选区
+              setConnectingNodeId(null); 
+              setSelectedIds(new Set()); 
 
-              // 4. 同步云端
               const changedNote = nextNotes.find(n => n.id === activeConnectingId);
-              if (changedNote) saveToCloud([changedNote], []); // 更新 Note 状态到云端
+              if (changedNote) saveToCloud([changedNote], []); 
 
-              // 删除被移除的线
               const deletedConns = currentConns.filter(c => c.sourceId === activeConnectingId || c.targetId === activeConnectingId);
               deletedConns.forEach(c => deleteFromCloud(undefined, c.id));
               
-              return; // 结束，不执行下面的选中删除逻辑
+              return; 
           }
 
-          // 如果没在连线，执行正常的选中删除 (删除图层)
+          // 🚨 正常删除
           if (currentSelected.size > 0) {
               const idsArray = Array.from(currentSelected);
               const nextNotes = currentNotes.filter(n => !currentSelected.has(n.id));
@@ -143,7 +135,6 @@ const App: React.FC = () => {
           }
       }
 
-      // ESC 键逻辑
       if (e.key === 'Escape') {
         if (isUIHidden) {
              setIsUIHidden(false); 
@@ -157,7 +148,6 @@ const App: React.FC = () => {
              setSelectedIds(new Set());
         }
       }
-      // 空格键逻辑
       if (e.code === 'Space' && !e.repeat) {
         setIsSpacePressed(true);
       }
@@ -283,7 +273,6 @@ const App: React.FC = () => {
       e.stopPropagation(); 
       e.preventDefault(); 
       
-      // 操作图钉时，不需要选中图层
       const note = notes.find(n => n.id === id); 
       if (!note) return; 
       const { width, height } = getNoteDimensions(note); 
@@ -419,7 +408,6 @@ const App: React.FC = () => {
 
   const handlePinClick = (e: React.MouseEvent, id: string) => { 
       e.stopPropagation(); 
-      // 保持之前的逻辑：点击图钉不选中 Note
       if (isPinDragRef.current) { isPinDragRef.current = false; return; } 
       if (isPinMode) { setIsPinMode(false); setConnectingNodeId(id); return; } 
       if (connectingNodeId === null) { 
@@ -507,7 +495,7 @@ const App: React.FC = () => {
           ))}
           <ConnectionLayer connections={connections} notes={notes} connectingNodeId={connectingNodeId} mousePos={mousePos} onDeleteConnection={handleDeleteConnection} onPinClick={handlePinClick} isPinMode={isPinMode} onConnectionColorChange={handleUpdateConnectionColor} onPinMouseDown={handlePinMouseDown} />
           
-          {/* 🟢 修复3：恢复数值覆盖层 */}
+          {/* 🟢 修复3：恢复数值覆盖层 + 🟢 新增：图钉坐标显示 */}
           {draggingId && selectedIds.size <= 1 && (() => { const n = notes.find(i => i.id === draggingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">X: {Math.round(n.x)}, Y: {Math.round(n.y)}</div></div> })()}
           {rotatingId && (() => { const n = notes.find(i => i.id === rotatingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{Math.round(n.rotation)}°</div></div> })()}
           {resizingId && transformStart && (() => {
@@ -517,6 +505,17 @@ const App: React.FC = () => {
              if (transformStart.resizeMode === 'CORNER' && isTextType) text = `${Math.round((n.scale || 1) * 100)}%`;
              else text = `W: ${Math.round(n.width || 0)} H: ${Math.round(n.height || 0)}`;
              return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{text}</div></div>
+          })()}
+          {pinDragData && (() => {
+             const n = notes.find(i => i.id === pinDragData.noteId);
+             if (!n) return null;
+             return (
+               <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]">
+                 <div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">
+                   Pin X: {Math.round(n.pinX ?? 0)}, Pin Y: {Math.round(n.pinY ?? 0)}
+                 </div>
+               </div>
+             );
           })()}
       </div>
       {editingNodeId && getEditingNote() && <EditModal note={getEditingNote()!} onSave={handleSaveNote} onClose={() => setEditingNodeId(null)} />}
