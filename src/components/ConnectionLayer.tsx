@@ -59,9 +59,9 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({ connections, notes, c
             const style = CONNECTION_STYLES[activeColor];
             return (
               <g key={conn.id} className="pointer-events-auto cursor-pointer" onMouseEnter={() => handleMouseEnter(conn.id)} onMouseLeave={handleMouseLeave}>
-                 {/* 隐形粗线，方便鼠标悬停 */}
+                 {/* Invisible wide stroke for easier hovering */}
                  <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke="transparent" strokeWidth="20" strokeLinecap="round" />
-                 {/* 可见细线 */}
+                 {/* Visible line */}
                  <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={style.stroke} strokeWidth="4" strokeLinecap="round" style={{ filter: style.filter }} />
               </g>
             );
@@ -82,68 +82,19 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({ connections, notes, c
             );
         })}
 
-        {/* 🟢 修复后的垂直按钮层 (Perpendicular) */}
         {connections.map(conn => {
             if (hoveredConnId !== conn.id) return null;
-            const start = getPinLocation(conn.sourceId); 
-            const end = getPinLocation(conn.targetId);
-            const midX = (start.x + end.x) / 2; 
-            const midY = (start.y + end.y) / 2;
-            
-            // 1. 计算连线的角度
-            const dx = end.x - start.x;
-            const dy = end.y - start.y;
-            const angle = Math.atan2(dy, dx); 
-
-            // 2. 计算垂直方向的角度 (当前角度 - 90度)
-            // 这会得到一个垂直于连线的方向向量
-            const perpAngle = angle - Math.PI / 2;
-
-            // 3. 计算偏移量
-            const dist = 40; // 按钮距离中心的距离
-            const offsetX = dist * Math.cos(perpAngle);
-            const offsetY = dist * Math.sin(perpAngle);
-
+            const start = getPinLocation(conn.sourceId); const end = getPinLocation(conn.targetId);
+            const midX = (start.x + end.x) / 2; const midY = (start.y + end.y) / 2;
             const currentColor = conn.color || COLORS.RED;
-            const color1 = currentColor === COLORS.GREEN ? COLORS.RED : COLORS.GREEN;
-            const color2 = currentColor === COLORS.PURPLE ? COLORS.RED : COLORS.PURPLE;
+            const topColor = currentColor === COLORS.GREEN ? COLORS.RED : COLORS.GREEN;
+            const bottomColor = currentColor === COLORS.PURPLE ? COLORS.RED : COLORS.PURPLE;
 
             return (
-                <div key={`controls-${conn.id}`} onMouseEnter={() => handleMouseEnter(conn.id)} onMouseLeave={handleMouseLeave} className="pointer-events-auto flex flex-col items-center justify-center gap-1" style={{ position: 'absolute', left: midX, top: midY, width: 0, height: 0, overflow: 'visible' }}>
-                    
-                    {/* 按钮 1 (向一侧垂直偏移) */}
-                    <button 
-                        className="absolute w-6 h-6 rounded-full border shadow-md hover:scale-110 transition-transform" 
-                        style={{ 
-                            backgroundColor: color1, 
-                            // 正向偏移
-                            transform: `translate(${offsetX}px, ${offsetY}px) translate(-50%, -50%)`
-                        }} 
-                        onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, color1); }} 
-                        onMouseDown={e => e.stopPropagation()} 
-                    />
-                    
-                    {/* 中间删除按钮 (居中不动) */}
-                    <button 
-                        className="absolute w-8 h-8 bg-white border-2 border-red-600 rounded-full flex items-center justify-center text-red-600 shadow-md hover:bg-red-50 hover:scale-110 transition-transform z-10" 
-                        style={{ transform: 'translate(-50%, -50%)' }}
-                        onClick={(e) => { e.stopPropagation(); onDeleteConnection(conn.id); }} 
-                        onMouseDown={e => e.stopPropagation()}
-                    >
-                        <X size={16} strokeWidth={3} />
-                    </button>
-                    
-                    {/* 按钮 2 (向另一侧垂直偏移) */}
-                    <button 
-                        className="absolute w-6 h-6 rounded-full border shadow-md hover:scale-110 transition-transform" 
-                        style={{ 
-                            backgroundColor: color2, 
-                            // 反向偏移 (负号)
-                            transform: `translate(${-offsetX}px, ${-offsetY}px) translate(-50%, -50%)`
-                        }} 
-                        onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, color2); }} 
-                        onMouseDown={e => e.stopPropagation()} 
-                    />
+                <div key={`controls-${conn.id}`} onMouseEnter={() => handleMouseEnter(conn.id)} onMouseLeave={handleMouseLeave} className="pointer-events-auto" style={{ position: 'absolute', left: midX, top: midY, transform: 'translate(-50%, -50%)' }}>
+                    <button className="absolute w-6 h-6 rounded-full border shadow-md hover:scale-110 transition-transform" style={{ backgroundColor: topColor, transform: 'translate(-50%, -40px)' }} onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, topColor); }} onMouseDown={e => e.stopPropagation()} />
+                    <button className="w-8 h-8 bg-white border-2 border-red-600 rounded-full flex items-center justify-center text-red-600 shadow-md hover:bg-red-50 hover:scale-110 transition-transform" onClick={(e) => { e.stopPropagation(); onDeleteConnection(conn.id); }} onMouseDown={e => e.stopPropagation()}><X size={16} strokeWidth={3} /></button>
+                    <button className="absolute w-6 h-6 rounded-full border shadow-md hover:scale-110 transition-transform" style={{ backgroundColor: bottomColor, transform: 'translate(-50%, 15px)' }} onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, bottomColor); }} onMouseDown={e => e.stopPropagation()} />
                 </div>
             );
         })}
