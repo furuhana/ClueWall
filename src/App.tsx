@@ -51,8 +51,12 @@ const App: React.FC = () => {
   const boardRef = useRef<HTMLDivElement>(null);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
 
-  const interactionRef = useRef({ draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections });
-  useEffect(() => { interactionRef.current = { draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections }; }, [draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections]);
+  // 🟢 关键：interactionRef 用于在闭包（如 useEffect）中访问最新的 state
+  const interactionRef = useRef({ draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId });
+  useEffect(() => { 
+      interactionRef.current = { draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId }; 
+  }, [draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId]);
+  
   const toWorld = useCallback((screenX: number, screenY: number) => { return { x: (screenX - view.x) / view.zoom, y: (screenY - view.y) / view.zoom }; }, [view]);
 
   // 1. 监听隐藏状态，触发 Toast
@@ -66,13 +70,16 @@ const App: React.FC = () => {
     }
   }, [isUIHidden]);
 
-  // 2. 🟢 删除功能 (deleteFromCloud 帮助函数)
+  // 2. 删除功能
   const deleteFromCloud = async (noteId?: string, connId?: string) => {
       if (noteId) await supabase.from('notes').delete().eq('id', noteId);
       if (connId) await supabase.from('connections').delete().eq('id', connId);
   };
 
   const handleDeleteNote = (id: string) => { 
+      // 如果删除了正在连线的点，取消连线状态
+      if (connectingNodeId === id) setConnectingNodeId(null);
+
       const nextNotes = notes.filter(n => n.id !== id); 
       const nextConns = connections.filter(c => c.sourceId !== id && c.targetId !== id); 
       setNotes(nextNotes); 
@@ -93,29 +100,27 @@ const App: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // 🟢 Delete / Backspace 删除逻辑
       if (e.key === 'Delete' || e.key === 'Backspace') {
-          // 如果正在编辑文字，不触发删除
           if (editingNodeId) return;
 
+          // 🚨 优先级 1：如果正在连线（手里拿着红线），按删除键 = 取消连线
+          if (interactionRef.current.connectingNodeId) {
+              setConnectingNodeId(null);
+              return; // 直接退出，保护 Note 不被删除
+          }
+
+          // 🚨 优先级 2：如果选中了便签，则删除便签
           const currentSelected = interactionRef.current.selectedIds;
           
           if (currentSelected.size > 0) {
               const idsArray = Array.from(currentSelected);
               const nextNotes = interactionRef.current.notes.filter(n => !currentSelected.has(n.id));
-              // 删除相关连线
               const nextConns = interactionRef.current.connections.filter(c => !currentSelected.has(c.sourceId) && !currentSelected.has(c.targetId));
               
               setNotes(nextNotes);
               setConnections(nextConns);
               setSelectedIds(new Set());
 
-              // 🟢 如果删除了正在连线的点，必须取消连线状态，否则会报错
-              if (connectingNodeId && currentSelected.has(connectingNodeId)) {
-                  setConnectingNodeId(null);
-              }
-
-              // 同步云端
               idsArray.forEach(id => deleteFromCloud(id));
-              // 找到被删除的连线并同步
               const deletedConns = interactionRef.current.connections.filter(c => currentSelected.has(c.sourceId) || currentSelected.has(c.targetId));
               deletedConns.forEach(c => deleteFromCloud(undefined, c.id));
           }
@@ -155,7 +160,7 @@ const App: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [isUIHidden, editingNodeId, connectingNodeId]); // 🟢 添加 connectingNodeId 依赖
+  }, [isUIHidden, editingNodeId]); 
 
   // 实时订阅
   useEffect(() => {
@@ -241,16 +246,14 @@ const App: React.FC = () => {
 
   const handleRotateStart = (e: React.MouseEvent, id: string) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if(!note) return; setRotatingId(id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth:0, initialHeight:0, initialX:0, initialY:0, initialScale:1 }); };
   
-  // 🟢 4. 修改 handleResizeStart：限制某些类型的拉伸方向
   const handleResizeStart = (e: React.MouseEvent, id: string, mode: ResizeMode) => { 
       e.stopPropagation(); e.preventDefault(); 
       const note = notes.find(n => n.id === id); 
       if(!note) return; 
 
-      // 🟢 限制：如果是便签类，禁止上下拉伸 (TOP/BOTTOM)
       if (['note', 'dossier', 'scrap'].includes(note.type)) {
           if (mode === 'TOP' || mode === 'BOTTOM') {
-              return; // 直接忽略操作
+              return; 
           }
       }
 
@@ -263,9 +266,9 @@ const App: React.FC = () => {
       e.stopPropagation(); 
       e.preventDefault(); 
       
-      // 🟢 修复：操作图钉时，强制选中该 Note，这样 Delete 键才能生效
-      setSelectedIds(new Set([id]));
-
+      // 🟢 修复：这里去掉了 setSelectedIds(new Set([id]))
+      // 操作图钉就是操作图钉，不要选中 Note 本身，防止误删图层
+      
       const note = notes.find(n => n.id === id); 
       if (!note) return; 
       const { width, height } = getNoteDimensions(note); 
@@ -402,8 +405,8 @@ const App: React.FC = () => {
   const handlePinClick = (e: React.MouseEvent, id: string) => { 
       e.stopPropagation(); 
       
-      // 🟢 修复：点击图钉时，强制选中该 Note，让 Delete 键生效
-      setSelectedIds(new Set([id]));
+      // 🟢 修复：这里去掉了 setSelectedIds(new Set([id]))
+      // 确保点击图钉只负责连线，不负责选中便签，防止按 Delete 误删
 
       if (isPinDragRef.current) { isPinDragRef.current = false; return; } 
       if (isPinMode) { setIsPinMode(false); setConnectingNodeId(id); return; } 
