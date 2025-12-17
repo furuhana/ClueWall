@@ -616,7 +616,7 @@ const App: React.FC = () => {
   // 🟢 修复3：自动播放音频
   useEffect(() => {
     if (audioRef.current) {
-      audioRef.current.volume = 0.5; // 设置音量50%
+      audioRef.current.volume = 0.2; // 设置音量20%
       const playPromise = audioRef.current.play();
       if (playPromise !== undefined) {
         playPromise.then(() => setIsMusicPlaying(true))
