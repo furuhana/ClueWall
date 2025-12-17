@@ -361,6 +361,7 @@ const App: React.FC = () => {
 
   const handleRotateStart = (e: React.MouseEvent, id: string) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if(!note) return; setRotatingId(id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth:0, initialHeight:0, initialX:0, initialY:0, initialScale:1 }); };
    
+  // 🟢 修复1：完全移除之前的“阻止拉伸”逻辑，允许所有卡片上下拉伸
   const handleResizeStart = (e: React.MouseEvent, id: string, mode: ResizeMode) => { 
       e.stopPropagation(); e.preventDefault(); 
       const note = notes.find(n => n.id === id); 
@@ -494,9 +495,68 @@ const App: React.FC = () => {
     if (pinDragData) { /* ... same pin logic ... */ isPinDragRef.current = true; const screenDx = e.clientX - pinDragData.startX; const screenDy = e.clientY - pinDragData.startY; const worldDx = screenDx / view.zoom; const worldDy = screenDy / view.zoom; const rad = -(pinDragData.rotation * Math.PI) / 180; const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad); let newPinX = pinDragData.initialPinX + localDx; let newPinY = pinDragData.initialPinY + localDy; newPinX = Math.max(0, Math.min(newPinX, pinDragData.width)); newPinY = Math.max(0, Math.min(newPinY, pinDragData.height)); setNotes(prev => prev.map(n => n.id === pinDragData.noteId ? { ...n, pinX: newPinX, pinY: newPinY } : n)); return; }
     if (isPanning && lastMousePosRef.current) { const dx = e.clientX - lastMousePosRef.current.x; const dy = e.clientY - lastMousePosRef.current.y; setView(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy })); lastMousePosRef.current = { x: e.clientX, y: e.clientY }; return; }
     if (rotatingId && transformStart) { const deltaX = e.clientX - transformStart.mouseX; const newRotation = transformStart.initialRotation - (deltaX * 0.5); setNotes(prev => prev.map(n => n.id === rotatingId ? { ...n, rotation: newRotation } : n)); return; }
-    if (resizingId && transformStart) { const note = notes.find(n => n.id === resizingId); if(!note) return; const mode = transformStart.resizeMode; const screenDx = e.clientX - transformStart.mouseX; const screenDy = e.clientY - transformStart.mouseY; const worldDx = screenDx / view.zoom; const worldDy = screenDy / view.zoom; const rad = -(transformStart.initialRotation * Math.PI) / 180; const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
-        if (mode === 'CORNER') { const aspectRatio = transformStart.initialWidth / transformStart.initialHeight; const avgWidthChange = (-localDx + localDy * aspectRatio) / 2; let newWidth = Math.max(30, transformStart.initialWidth + avgWidthChange); let newHeight = newWidth / aspectRatio; const widthChange = newWidth - transformStart.initialWidth; const heightChange = newHeight - transformStart.initialHeight; setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, scale: ['note','dossier','scrap'].includes(n.type) ? (newWidth/(transformStart.initialWidth/transformStart.initialScale)) : undefined, x: transformStart.initialX - (widthChange / 2), y: transformStart.initialY - (heightChange / 2) } : n)); }
-        else { let newWidth = transformStart.initialWidth; let newHeight = transformStart.initialHeight; let newX = transformStart.initialX; let newY = transformStart.initialY; const MIN_W = 30; const MIN_H = 30; if (mode === 'LEFT') { newWidth = Math.max(MIN_W, transformStart.initialWidth - localDx); newX = transformStart.initialX + localDx; } else if (mode === 'RIGHT') { newWidth = Math.max(MIN_W, transformStart.initialWidth + localDx); } else if (mode === 'TOP') { newHeight = Math.max(MIN_H, transformStart.initialHeight - localDy); newY = transformStart.initialY + localDy; } else if (mode === 'BOTTOM') { newHeight = Math.max(MIN_H, transformStart.initialHeight + localDy); } setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, x: newX, y: newY } : n)); } return;
+    
+    // 🟢 修复2：拉伸逻辑更新，强制限制最小宽高
+    if (resizingId && transformStart) { 
+        const note = notes.find(n => n.id === resizingId); 
+        if(!note) return; 
+        const mode = transformStart.resizeMode; 
+        const screenDx = e.clientX - transformStart.mouseX; 
+        const screenDy = e.clientY - transformStart.mouseY; 
+        const worldDx = screenDx / view.zoom; 
+        const worldDy = screenDy / view.zoom; 
+        const rad = -(transformStart.initialRotation * Math.PI) / 180; 
+        const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); 
+        const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
+
+        // 🟢 定义所有类型的最小尺寸限制表
+        const MIN_DIMENSIONS: Record<string, { w: number, h: number }> = {
+            note: { w: 106, h: 160 },
+            photo: { w: 124, h: 140 },
+            scrap: { w: 146, h: 50 },
+            dossier: { w: 256, h: 224 },
+            marker: { w: 30, h: 30 },
+        };
+        // 获取当前便签的限制，如果没有则默认 50x50
+        const limits = MIN_DIMENSIONS[note.type] || { w: 50, h: 50 };
+
+        if (mode === 'CORNER') { 
+            const aspectRatio = transformStart.initialWidth / transformStart.initialHeight; 
+            const avgWidthChange = (-localDx + localDy * aspectRatio) / 2; 
+            let newWidth = Math.max(limits.w, transformStart.initialWidth + avgWidthChange); 
+            let newHeight = newWidth / aspectRatio; 
+            
+            // 如果高度小于限制，强行修正高度并反推宽度
+            if (newHeight < limits.h) {
+                newHeight = limits.h;
+                newWidth = newHeight * aspectRatio;
+            }
+
+            const widthChange = newWidth - transformStart.initialWidth; 
+            const heightChange = newHeight - transformStart.initialHeight; 
+            setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, scale: ['note','dossier','scrap'].includes(n.type) ? (newWidth/(transformStart.initialWidth/transformStart.initialScale)) : undefined, x: transformStart.initialX - (widthChange / 2), y: transformStart.initialY - (heightChange / 2) } : n)); 
+        } else { 
+            let newWidth = transformStart.initialWidth; 
+            let newHeight = transformStart.initialHeight; 
+            let newX = transformStart.initialX; 
+            let newY = transformStart.initialY; 
+            
+            if (mode === 'LEFT') { 
+                newWidth = Math.max(limits.w, transformStart.initialWidth - localDx); 
+                newX = transformStart.initialX + (transformStart.initialWidth - newWidth); 
+            } else if (mode === 'RIGHT') { 
+                newWidth = Math.max(limits.w, transformStart.initialWidth + localDx); 
+            } else if (mode === 'TOP') { 
+                // 🟢 向上拉伸：限制高度，并确保 Y 轴位置正确锁定
+                newHeight = Math.max(limits.h, transformStart.initialHeight - localDy); 
+                newY = (transformStart.initialY + transformStart.initialHeight) - newHeight;
+            } else if (mode === 'BOTTOM') { 
+                // 🟢 向下拉伸：限制高度
+                newHeight = Math.max(limits.h, transformStart.initialHeight + localDy); 
+            } 
+            setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, x: newX, y: newY } : n)); 
+        } 
+        return;
     }
     const worldMouse = toWorld(e.clientX, e.clientY); if (connectingNodeId) setMousePos({ x: worldMouse.x, y: worldMouse.y }); 
   }, [isPanning, draggingId, connectingNodeId, view, toWorld, rotatingId, resizingId, transformStart, pinDragData, notes, selectionBox, selectedIds, ghostNote]); 
@@ -552,14 +612,41 @@ const App: React.FC = () => {
   const isUIHiddenRef = useRef(isUIHidden); useEffect(() => { isUIHiddenRef.current = isUIHidden; }, [isUIHidden]);
   useEffect(() => { const t = setTimeout(() => { if (isUIHiddenRef.current) setShowHiddenModeToast(true); }, 1000); return () => clearTimeout(t); }, []); 
   useEffect(() => { if (showHiddenModeToast) { const t = setTimeout(() => setShowHiddenModeToast(false), 3000); return () => clearTimeout(t); } }, [showHiddenModeToast]);
-  useEffect(() => { if (audioRef.current) { audioRef.current.volume = 0.5; audioRef.current.play().then(() => setIsMusicPlaying(true)).catch(() => setIsMusicPlaying(false)); } }, []);
+  
+  // 🟢 修复3：自动播放音频
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = 0.5; // 设置音量50%
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.then(() => setIsMusicPlaying(true))
+        .catch(error => {
+            console.log("Auto-play blocked by browser policy");
+            setIsMusicPlaying(false);
+            // 添加一次性点击监听器，用户交互后立即播放
+            const enableAudio = () => {
+                if(audioRef.current) {
+                    audioRef.current.play();
+                    setIsMusicPlaying(true);
+                    window.removeEventListener('click', enableAudio);
+                    window.removeEventListener('keydown', enableAudio);
+                }
+            };
+            window.addEventListener('click', enableAudio);
+            window.addEventListener('keydown', enableAudio);
+        });
+      }
+    }
+  }, []);
+
   const toggleMusic = () => { if (!audioRef.current) return; if (isMusicPlaying) { audioRef.current.pause(); setIsMusicPlaying(false); } else { audioRef.current.play().then(() => setIsMusicPlaying(true)); } };
   useEffect(() => { const globalUp = () => handleMouseUp(); window.addEventListener('mouseup', globalUp); return () => window.removeEventListener('mouseup', globalUp); }, [isPanning, draggingId, rotatingId, resizingId, pinDragData, notes, connections, selectedIds, ghostNote]);
 
   return (
     <div ref={boardRef} className={`w-screen h-screen relative overflow-hidden select-none ${isSpacePressed || isPanning ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`} style={{ backgroundImage: `url("${GRID_URL}"), linear-gradient(180deg, #A38261 22.65%, #977049 100%)`, backgroundPosition: `${view.x}px ${view.y}px, 0 0`, backgroundSize: `${30 * view.zoom}px ${30 * view.zoom}px, 100% 100%`, backgroundRepeat: 'repeat, no-repeat', backgroundColor: '#A38261' }} onWheel={handleWheel} onMouseDown={handleBackgroundMouseDown} onMouseMove={handleMouseMove} onClick={handleBackgroundClick} onDoubleClick={handleBackgroundDoubleClick} onDrop={handleDrop} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver}>
       <style>{`.animate-dash { stroke-dasharray: 8 4 !important; }`}</style>
-      <audio ref={audioRef} src="/home_bgm.mp3" loop />
+      {/* 🟢 修复4：添加 autoPlay 属性 */}
+      <audio ref={audioRef} src="/home_bgm.mp3" loop autoPlay />
       {isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-3 bg-black/70 backdrop-blur-md text-white/90 px-4 py-2 rounded-full border border-white/10 shadow-lg pointer-events-none"><Loader2 className="animate-spin text-yellow-400" size={16} /><span className="font-mono text-xs tracking-wider">SYNCING...</span></div>}
       {!isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-2 pointer-events-none opacity-50 hover:opacity-100 transition-opacity"><div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" /><span className="font-mono text-[10px] text-white/70 tracking-widest">SECURE CONN.</span></div>}
        
