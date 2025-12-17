@@ -6,7 +6,7 @@ import ConnectionLayer from './components/ConnectionLayer';
 import EditModal from './components/EditModal';
 import { 
   Trash2, MapPin, UploadCloud, Plus, Minus, Volume2, VolumeX, LocateFixed, Maximize, Loader2, MousePointer2,
-  StickyNote, Image as ImageIcon, Folder, FileText, Crosshair, Target
+  StickyNote, Image as ImageIcon, Folder, FileText, Crosshair
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { uploadImage } from './api'; 
@@ -47,8 +47,8 @@ const App: React.FC = () => {
   const [isUIHidden, setIsUIHidden] = useState<boolean>(true); 
   const [showHiddenModeToast, setShowHiddenModeToast] = useState(false);
    
-  // 🟢 幽灵模式状态 (现在仅仅作为位置标记)
-  const [ghostNote, setGhostNote] = useState<{ x: number; y: number } | null>(null);
+  // 🟢 幽灵模式状态：记录坐标和当前滚轮选中的类型索引
+  const [ghostNote, setGhostNote] = useState<{ x: number; y: number; typeIndex: number } | null>(null);
 
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const dragCounter = useRef(0);
@@ -99,8 +99,23 @@ const App: React.FC = () => {
   // 3. 全局键盘监听
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 🟢 幽灵模式下按 ESC 取消定点
+      // 🟢 幽灵模式控制
       if (interactionRef.current.ghostNote) {
+          // 箭头键也可以切换类型
+          if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+              setGhostNote(prev => prev ? { ...prev, typeIndex: (prev.typeIndex + 1) % NOTE_TYPES.length } : null);
+              return;
+          }
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+              setGhostNote(prev => prev ? { ...prev, typeIndex: (prev.typeIndex - 1 + NOTE_TYPES.length) % NOTE_TYPES.length } : null);
+              return;
+          }
+          // 回车确认创建
+          if (e.key === 'Enter') {
+              confirmGhostCreation();
+              return;
+          }
+          // ESC 取消
           if (e.key === 'Escape') {
               setGhostNote(null);
               return;
@@ -201,6 +216,17 @@ const App: React.FC = () => {
   };
 
   const handleWheel = (e: React.WheelEvent) => { 
+      // 🟢 滚轮逻辑：如果有 Ghost，切换 Ghost 类型；否则缩放画布
+      if (ghostNote) {
+          const direction = e.deltaY > 0 ? 1 : -1;
+          setGhostNote(prev => {
+              if (!prev) return null;
+              const nextIndex = (prev.typeIndex + direction + NOTE_TYPES.length) % NOTE_TYPES.length;
+              return { ...prev, typeIndex: nextIndex };
+          });
+          return;
+      }
+
       if (editingNodeId) return; 
       cancelAnimation(); 
       const delta = -e.deltaY * 0.001; 
@@ -210,7 +236,7 @@ const App: React.FC = () => {
   };
    
   const handleBackgroundMouseDown = (e: React.MouseEvent) => {
-    // 🟢 优化：点击空白背景 = 取消定点
+    // 🟢 优化：点击空白背景 = 取消 Ghost
     if (ghostNote) {
         if (e.button === 0) {
             setGhostNote(null);
@@ -227,13 +253,21 @@ const App: React.FC = () => {
     }
   };
 
-  // 🟢 双击触发定点：只记录位置，不决定类型
+  // 🟢 双击触发 Ghost 模式，设置位置和默认类型(0)
   const handleBackgroundDoubleClick = (e: React.MouseEvent) => {
       if (e.target === boardRef.current && !isPanning && !draggingId) {
           const worldPos = toWorld(e.clientX, e.clientY);
-          // 记录靶心位置
-          setGhostNote({ x: worldPos.x, y: worldPos.y });
+          setGhostNote({ x: worldPos.x, y: worldPos.y, typeIndex: 0 });
       }
+  };
+
+  // 🟢 确认创建函数：直接把 ghost 变成实体
+  const confirmGhostCreation = () => {
+      if (!ghostNote) return;
+      const type = NOTE_TYPES[ghostNote.typeIndex];
+      // 传入 Ghost 的坐标，直接创建
+      addNote(type, { x: ghostNote.x, y: ghostNote.y });
+      setGhostNote(null);
   };
 
   const handleBackgroundClick = (e: React.MouseEvent) => {
@@ -270,7 +304,6 @@ const App: React.FC = () => {
   const handleNodeMouseDown = (e: React.MouseEvent, id: string) => {
     if (e.button === 1 || isSpacePressed) return; 
     e.stopPropagation(); 
-    // 点击便签时取消 Ghost 定点
     if (ghostNote) { setGhostNote(null); }
 
     if (isPinMode || connectingNodeId) {
@@ -323,9 +356,7 @@ const App: React.FC = () => {
   };
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // Ghost Mode 只是一个静态标记，不影响移动
-    // if (ghostNote) return; // 移除这个返回，允许在 ghost 存在时移动鼠标
-
+    // 允许在 Ghost 模式下移动鼠标
     if (selectionBox) {
         const currentX = e.clientX; 
         const currentY = e.clientY;
@@ -441,24 +472,21 @@ const App: React.FC = () => {
   const handleUpdateConnectionColor = (id: string, color: string) => { const nextConns = connections.map(c => c.id === id ? { ...c, color } : c); setConnections(nextConns); saveToCloud(notes, nextConns); };
   const handleStartPinFromCorner = (id: string) => setIsPinMode(true);
   
-  // 🟢 修复5：addNote 现在会检查“有没有靶心”
-  const addNote = (type: Note['type']) => { 
+  // 🟢 修复6：addNote 同时支持 按钮模式(随机位置) 和 幻影模式(指定位置)
+  // 参数 specificPos 是可选的
+  const addNote = (type: Note['type'], specificPos?: { x: number, y: number }) => { 
       let x, y;
-
-      // 1. 如果有靶心，用靶心的坐标
-      if (ghostNote) {
-          x = ghostNote.x;
-          y = ghostNote.y;
-          setGhostNote(null); // 用完即焚
+      if (specificPos) {
+          x = specificPos.x;
+          y = specificPos.y;
       } else {
-          // 2. 如果没有靶心，默认用屏幕中间
           const centerX = window.innerWidth / 2; 
           const centerY = window.innerHeight / 2; 
           const worldPos = toWorld(centerX, centerY); 
           x = worldPos.x + (Math.random() * 60 - 30); 
           y = worldPos.y + (Math.random() * 60 - 30); 
       }
-
+      
       const id = `new-${Date.now()}`; 
       let width = 256; let height = 160; 
       if (type === 'photo') height = 280; 
@@ -524,12 +552,11 @@ const App: React.FC = () => {
             <div className="flex flex-col gap-2">
                 <button onClick={(e) => { e.stopPropagation(); setIsPinMode(!isPinMode); }} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600'}`}><MapPin size={16} /> {isPinMode ? 'DONE' : 'PIN TOOL'}</button>
                 <div className="grid grid-cols-2 gap-2 mt-2">
-                    {/* 🟢 按钮逻辑：阻止冒泡 + 添加便签 */}
-                    <button onClick={(e) => { e.stopPropagation(); addNote('note'); }} className={`px-2 py-1 rounded text-xs transition-colors ${ghostNote ? 'bg-yellow-500 text-black animate-pulse font-bold' : 'bg-yellow-600 hover:bg-yellow-500 text-white'}`}>Add Note</button>
-                    <button onClick={(e) => { e.stopPropagation(); addNote('photo'); }} className={`px-2 py-1 rounded text-xs transition-colors ${ghostNote ? 'bg-gray-400 text-black animate-pulse font-bold' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}>Add Photo</button>
-                    <button onClick={(e) => { e.stopPropagation(); addNote('dossier'); }} className={`px-2 py-1 rounded text-xs transition-colors ${ghostNote ? 'bg-orange-500 text-black animate-pulse font-bold' : 'bg-orange-800 hover:bg-orange-700 text-white'}`}>Add Dossier</button>
-                    <button onClick={(e) => { e.stopPropagation(); addNote('scrap'); }} className={`px-2 py-1 rounded text-xs transition-colors ${ghostNote ? 'bg-stone-100 text-black animate-pulse font-bold' : 'bg-stone-300 hover:bg-stone-200 text-stone-900'}`}>Add Scrap</button>
-                    <button onClick={(e) => { e.stopPropagation(); addNote('marker'); }} className={`px-3 py-1 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1 transition-colors ${ghostNote ? 'bg-blue-400 text-black animate-pulse' : 'bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900'}`}>Add Marker</button>
+                    <button onClick={(e) => { e.stopPropagation(); addNote('note'); }} className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs">Add Note</button>
+                    <button onClick={(e) => { e.stopPropagation(); addNote('photo'); }} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button>
+                    <button onClick={(e) => { e.stopPropagation(); addNote('dossier'); }} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button>
+                    <button onClick={(e) => { e.stopPropagation(); addNote('scrap'); }} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button>
+                    <button onClick={(e) => { e.stopPropagation(); addNote('marker'); }} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button>
                     <button onClick={(e) => { e.stopPropagation(); clearBoard(); }} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1"><Trash2 size={12}/> Clear</button>
                 </div>
             </div>
@@ -567,25 +594,41 @@ const App: React.FC = () => {
           ))}
           <ConnectionLayer connections={connections} notes={notes} connectingNodeId={connectingNodeId} mousePos={mousePos} onDeleteConnection={handleDeleteConnection} onPinClick={handlePinClick} isPinMode={isPinMode} onConnectionColorChange={handleUpdateConnectionColor} onPinMouseDown={handlePinMouseDown} />
            
-          {/* 🟢 Ghost 可视化：现在是一个动态的靶心，表示“在此插入” */}
-          {ghostNote && (
-              <div style={{ position: 'absolute', left: ghostNote.x, top: ghostNote.y, transform: 'translate(-50%, -50%)', zIndex: 20000, pointerEvents: 'none' }}>
-                  <div className="relative flex items-center justify-center">
-                       {/* 扩散波纹 */}
-                       <div className="absolute w-12 h-12 rounded-full border-2 border-red-500/50 animate-ping"></div>
-                       {/* 旋转准星 */}
-                       <div className="text-red-500 animate-[spin_3s_linear_infinite]">
-                           <Crosshair size={40} strokeWidth={1.5}/>
-                       </div>
-                       {/* 中心点 */}
-                       <div className="absolute w-1 h-1 bg-red-500 rounded-full"></div>
-                       {/* 提示文字 */}
-                       <div className="absolute top-8 whitespace-nowrap bg-black/80 text-white text-[10px] font-mono px-2 py-1 rounded backdrop-blur">
-                           SELECT TOOL TO INSERT
-                       </div>
+          {/* 🟢 Ghost 可视化预览：图标 + 滚轮提示 */}
+          {ghostNote && (() => {
+              const currentType = NOTE_TYPES[ghostNote.typeIndex];
+              // 定义样式映射
+              const previewStyles: Record<string, { color: string, icon: React.ReactNode }> = {
+                  note: { color: 'border-yellow-500 bg-yellow-500/20 text-yellow-500', icon: <StickyNote size={48} /> },
+                  photo: { color: 'border-gray-400 bg-gray-500/20 text-gray-400', icon: <ImageIcon size={48} /> },
+                  dossier: { color: 'border-orange-600 bg-orange-600/20 text-orange-600', icon: <Folder size={48} /> },
+                  scrap: { color: 'border-stone-400 bg-stone-400/20 text-stone-400', icon: <FileText size={48} /> },
+                  marker: { color: 'border-blue-500 bg-blue-500/20 text-blue-500', icon: <MapPin size={48} /> },
+              };
+              const style = previewStyles[currentType] || previewStyles.note;
+
+              return (
+                  <div style={{ position: 'absolute', left: ghostNote.x, top: ghostNote.y, transform: 'translate(-50%, -50%)', zIndex: 20000, pointerEvents: 'auto', cursor: 'pointer' }}
+                       // 🟢 关键交互：点击预览图标 = 确认创建
+                       onClick={(e) => { e.stopPropagation(); confirmGhostCreation(); }}
+                  >
+                      <div className="flex flex-col items-center justify-center animate-in fade-in zoom-in duration-200 group">
+                          {/* 动态圆圈 + 动态图标 */}
+                          <div className={`w-24 h-24 rounded-full border-4 flex items-center justify-center shadow-2xl backdrop-blur-sm transition-all duration-300 group-hover:scale-110 ${style.color}`}>
+                              {style.icon}
+                          </div>
+                          {/* 类型标签 */}
+                          <div className={`mt-4 px-4 py-1 rounded-full font-bold uppercase tracking-widest text-sm border bg-black/80 backdrop-blur-md transition-colors duration-300 ${style.color.replace('bg-', 'border-').replace('/20', '/50')}`}>
+                              {currentType}
+                          </div>
+                          {/* 操作提示 */}
+                          <div className="mt-2 text-white/50 text-[10px] font-mono flex items-center gap-1 bg-black/40 px-2 py-1 rounded-full">
+                              <MousePointer2 size={10}/> SCROLL TO SWITCH / CLICK TO CREATE
+                          </div>
+                      </div>
                   </div>
-              </div>
-          )}
+              );
+          })()}
 
           {draggingId && selectedIds.size <= 1 && (() => { const n = notes.find(i => i.id === draggingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">X: {Math.round(n.x)}, Y: {Math.round(n.y)}</div></div> })()}
           {rotatingId && (() => { const n = notes.find(i => i.id === rotatingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{Math.round(n.rotation)}°</div></div> })()}
