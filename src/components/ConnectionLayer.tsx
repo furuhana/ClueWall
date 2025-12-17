@@ -59,9 +59,9 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({ connections, notes, c
             const style = CONNECTION_STYLES[activeColor];
             return (
               <g key={conn.id} className="pointer-events-auto cursor-pointer" onMouseEnter={() => handleMouseEnter(conn.id)} onMouseLeave={handleMouseLeave}>
-                 {/* 隐形加粗线，方便鼠标悬停 */}
+                 {/* 隐形粗线，方便鼠标悬停 */}
                  <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke="transparent" strokeWidth="20" strokeLinecap="round" />
-                 {/* 实际显示的连线 */}
+                 {/* 可见细线 */}
                  <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={style.stroke} strokeWidth="4" strokeLinecap="round" style={{ filter: style.filter }} />
               </g>
             );
@@ -82,7 +82,7 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({ connections, notes, c
             );
         })}
 
-        {/* 🟢 修复后的垂直操作按钮层 (跟随线条角度) */}
+        {/* 🟢 修复：按钮跟随连线方向排列 (Inline) */}
         {connections.map(conn => {
             if (hoveredConnId !== conn.id) return null;
             const start = getPinLocation(conn.sourceId); 
@@ -90,34 +90,33 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({ connections, notes, c
             const midX = (start.x + end.x) / 2; 
             const midY = (start.y + end.y) / 2;
             
-            // 计算连线的角度
+            // 1. 计算连线的角度
             const dx = end.x - start.x;
             const dy = end.y - start.y;
-            const angle = Math.atan2(dy, dx); // 弧度
+            const angle = Math.atan2(dy, dx); 
 
-            // 计算垂直于线的偏移量 (offset)
-            // 距离中心点 40px
-            const dist = 40;
-            // 垂直角度 = 线角度 - 90度 (PI/2)
-            const offsetX = dist * Math.cos(angle - Math.PI / 2);
-            const offsetY = dist * Math.sin(angle - Math.PI / 2);
+            // 2. 计算偏移量 (在线的方向上偏移)
+            // dist 是按钮距离中心的距离，稍微加大一点避免遮挡
+            const dist = 45; 
+            const offsetX = dist * Math.cos(angle);
+            const offsetY = dist * Math.sin(angle);
 
             const currentColor = conn.color || COLORS.RED;
-            const topColor = currentColor === COLORS.GREEN ? COLORS.RED : COLORS.GREEN;
-            const bottomColor = currentColor === COLORS.PURPLE ? COLORS.RED : COLORS.PURPLE;
+            const color1 = currentColor === COLORS.GREEN ? COLORS.RED : COLORS.GREEN;
+            const color2 = currentColor === COLORS.PURPLE ? COLORS.RED : COLORS.PURPLE;
 
             return (
                 <div key={`controls-${conn.id}`} onMouseEnter={() => handleMouseEnter(conn.id)} onMouseLeave={handleMouseLeave} className="pointer-events-auto flex flex-col items-center justify-center gap-1" style={{ position: 'absolute', left: midX, top: midY, width: 0, height: 0, overflow: 'visible' }}>
                     
-                    {/* 按钮 1 (沿垂直方向偏移) */}
+                    {/* 按钮 1 (向起点方向偏移: 负offset) */}
                     <button 
                         className="absolute w-6 h-6 rounded-full border shadow-md hover:scale-110 transition-transform" 
                         style={{ 
-                            backgroundColor: topColor, 
-                            // 使用计算出的偏移量定位
-                            transform: `translate(${offsetX}px, ${offsetY}px) translate(-50%, -50%)`
+                            backgroundColor: color1, 
+                            // 负号表示向“起点”方向移动
+                            transform: `translate(${-offsetX}px, ${-offsetY}px) translate(-50%, -50%)`
                         }} 
-                        onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, topColor); }} 
+                        onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, color1); }} 
                         onMouseDown={e => e.stopPropagation()} 
                     />
                     
@@ -131,15 +130,15 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({ connections, notes, c
                         <X size={16} strokeWidth={3} />
                     </button>
                     
-                    {/* 按钮 2 (沿相反垂直方向偏移) */}
+                    {/* 按钮 2 (向终点方向偏移: 正offset) */}
                     <button 
                         className="absolute w-6 h-6 rounded-full border shadow-md hover:scale-110 transition-transform" 
                         style={{ 
-                            backgroundColor: bottomColor, 
-                            // 相反方向就是 负 offset
-                            transform: `translate(${-offsetX}px, ${-offsetY}px) translate(-50%, -50%)`
+                            backgroundColor: color2, 
+                            // 正号表示向“终点”方向移动
+                            transform: `translate(${offsetX}px, ${offsetY}px) translate(-50%, -50%)`
                         }} 
-                        onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, bottomColor); }} 
+                        onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, color2); }} 
                         onMouseDown={e => e.stopPropagation()} 
                     />
                 </div>
