@@ -50,10 +50,6 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({
 }) => {
   const [hoveredConnId, setHoveredConnId] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<number | null>(null);
-  
-  // 🟢 记忆小本本：记录每条连线上一次的颜色
-  // 格式：{ "conn-id-1": "#D43939", ... }
-  const previousColors = useRef<Record<string, string>>({});
 
   const handleMouseEnter = (id: string) => {
     if (hoverTimeoutRef.current) {
@@ -67,18 +63,6 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({
     hoverTimeoutRef.current = window.setTimeout(() => {
       setHoveredConnId(null);
     }, 150);
-  };
-
-  // 辅助函数：获取上一个颜色，默认为红色
-  const getPrevColor = (id: string) => previousColors.current[id] || COLORS.RED;
-
-  // 🟢 核心：处理颜色切换，并记录历史
-  const handleColorSwitch = (id: string, newColor: string, currentColor: string) => {
-      if (onConnectionColorChange) {
-          // 在切换前，把“现在的颜色”记入小本本
-          previousColors.current[id] = currentColor;
-          onConnectionColorChange(id, newColor);
-      }
   };
 
   const getPinLocation = (noteId: string) => {
@@ -121,7 +105,9 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({
 
             return (
               <g key={conn.id} className="group pointer-events-auto cursor-pointer" onMouseEnter={() => handleMouseEnter(conn.id)} onMouseLeave={handleMouseLeave}>
+                 {/* 隐形粗线，方便鼠标悬停 */}
                  <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke="transparent" strokeWidth="20" strokeLinecap="round" />
+                 {/* 实际细线 */}
                  <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={displayStroke} strokeWidth="4" strokeLinecap="round" className="transition-all duration-200" style={{ stroke: displayStroke, filter: style.filter }} />
               </g>
             );
@@ -157,11 +143,13 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({
             const midX = (start.x + end.x) / 2;
             const midY = (start.y + end.y) / 2;
             
+            // 计算角度
             const dx = end.x - start.x;
             const dy = end.y - start.y;
-            const angle = Math.atan2(dy, dx); 
+            const angle = Math.atan2(dy, dx);
+            // 计算垂直方向偏移 (角度 - 90度)
             const perpAngle = angle - Math.PI / 2;
-            const dist = 40; 
+            const dist = 45; // 间距
             const offsetX = dist * Math.cos(perpAngle);
             const offsetY = dist * Math.sin(perpAngle);
 
@@ -169,61 +157,53 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({
             const isGreen = currentColor === COLORS.GREEN;
             const isPurple = currentColor === COLORS.PURPLE;
 
-            // 🟢 动态计算按钮颜色和行为
-            
-            // 上按钮（Top）：负责绿色
-            // 如果我是绿色 -> 显示“上一个颜色”
-            // 如果我不是绿色 -> 显示“绿色”
-            const topTargetColor = isGreen ? getPrevColor(conn.id) : COLORS.GREEN;
-            
-            // 下按钮（Bottom）：负责紫色
-            // 如果我是紫色 -> 显示“上一个颜色”
-            // 如果我不是紫色 -> 显示“紫色”
-            const bottomTargetColor = isPurple ? getPrevColor(conn.id) : COLORS.PURPLE;
+            // 逻辑修正：
+            // 上按钮(Top): 控制绿色。如果当前是绿，显示红(撤销)；否则显示绿(切换)。
+            const topBtnColor = isGreen ? COLORS.RED : COLORS.GREEN;
+            // 下按钮(Bottom): 控制紫色。如果当前是紫，显示红(撤销)；否则显示紫(切换)。
+            const botBtnColor = isPurple ? COLORS.RED : COLORS.PURPLE;
 
             return (
-              <div key={`controls-${conn.id}`} onMouseEnter={() => handleMouseEnter(conn.id)} onMouseLeave={handleMouseLeave} className="pointer-events-auto flex flex-col items-center justify-center gap-1" style={{ position: 'absolute', left: midX, top: midY, width: 0, height: 0, overflow: 'visible' }}>
+              <div key={`controls-${conn.id}`} className="pointer-events-auto" style={{ position: 'absolute', left: midX, top: midY, width: 0, height: 0, overflow: 'visible' }} onMouseEnter={() => handleMouseEnter(conn.id)} onMouseLeave={handleMouseLeave}>
                   
-                  {/* Top Button: Green Controller */}
+                  {/* Top Button (Slot 1): 绿色控制位 */}
                   <button
                     className={`absolute w-6 h-6 rounded-full border shadow-lg hover:scale-125 transition-transform cursor-pointer pointer-events-auto flex items-center justify-center animate-in fade-in zoom-in duration-200 ${isGreen ? 'ring-2 ring-white border-transparent' : 'border-white/50'}`}
                     style={{ 
-                        backgroundColor: topTargetColor, 
+                        backgroundColor: topBtnColor, 
                         transform: `translate(${offsetX}px, ${offsetY}px) translate(-50%, -50%)`
                     }}
-                    onMouseEnter={() => handleMouseEnter(conn.id)}
-                    onMouseLeave={handleMouseLeave}
                     onClick={(e) => {
                         e.preventDefault(); e.stopPropagation();
-                        handleColorSwitch(conn.id, topTargetColor, currentColor);
+                        // 逻辑：如果按钮显示红色(意味着当前是绿)，则切回红；如果显示绿色，则切成绿
+                        const nextColor = topBtnColor === COLORS.RED ? COLORS.RED : COLORS.GREEN;
+                        onConnectionColorChange && onConnectionColorChange(conn.id, nextColor);
                     }}
                     onMouseDown={(e) => e.stopPropagation()}
                   />
 
                   {/* Center Delete Button */}
                   <button
-                    className="absolute w-8 h-8 bg-white border-2 border-red-600 rounded-full flex items-center justify-center text-red-600 shadow-lg hover:bg-red-50 hover:scale-110 transition-transform cursor-pointer pointer-events-auto animate-in fade-in zoom-in duration-200"
+                    className="absolute w-8 h-8 bg-white border-2 border-red-600 rounded-full flex items-center justify-center text-red-600 shadow-lg hover:bg-red-50 hover:scale-110 transition-transform cursor-pointer pointer-events-auto animate-in fade-in zoom-in duration-200 z-10"
                     style={{ transform: 'translate(-50%, -50%)' }}
-                    onMouseEnter={() => handleMouseEnter(conn.id)}
-                    onMouseLeave={handleMouseLeave}
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeleteConnection(conn.id); }}
                     onMouseDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
                   >
                     <X size={16} strokeWidth={3} />
                   </button>
 
-                  {/* Bottom Button: Purple Controller */}
+                  {/* Bottom Button (Slot 2): 紫色控制位 */}
                   <button
                     className={`absolute w-6 h-6 rounded-full border shadow-lg hover:scale-125 transition-transform cursor-pointer pointer-events-auto flex items-center justify-center animate-in fade-in zoom-in duration-200 ${isPurple ? 'ring-2 ring-white border-transparent' : 'border-white/50'}`}
                     style={{ 
-                        backgroundColor: bottomTargetColor, 
+                        backgroundColor: botBtnColor, 
                         transform: `translate(${-offsetX}px, ${-offsetY}px) translate(-50%, -50%)`
                     }}
-                    onMouseEnter={() => handleMouseEnter(conn.id)}
-                    onMouseLeave={handleMouseLeave}
                     onClick={(e) => {
                         e.preventDefault(); e.stopPropagation();
-                        handleColorSwitch(conn.id, bottomTargetColor, currentColor);
+                        // 逻辑：如果按钮显示红色(意味着当前是紫)，则切回红；如果显示紫色，则切成紫
+                        const nextColor = botBtnColor === COLORS.RED ? COLORS.RED : COLORS.PURPLE;
+                        onConnectionColorChange && onConnectionColorChange(conn.id, nextColor);
                     }}
                     onMouseDown={(e) => e.stopPropagation()}
                   />
