@@ -59,9 +59,9 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({ connections, notes, c
             const style = CONNECTION_STYLES[activeColor];
             return (
               <g key={conn.id} className="pointer-events-auto cursor-pointer" onMouseEnter={() => handleMouseEnter(conn.id)} onMouseLeave={handleMouseLeave}>
-                 {/* Invisible wide stroke for easier hovering */}
+                 {/* 隐形加粗线，方便鼠标悬停 */}
                  <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke="transparent" strokeWidth="20" strokeLinecap="round" />
-                 {/* Visible line */}
+                 {/* 实际显示的连线 */}
                  <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={style.stroke} strokeWidth="4" strokeLinecap="round" style={{ filter: style.filter }} />
               </g>
             );
@@ -82,40 +82,63 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({ connections, notes, c
             );
         })}
 
-        {/* 🟢 修复后的垂直操作按钮层 */}
+        {/* 🟢 修复后的垂直操作按钮层 (跟随线条角度) */}
         {connections.map(conn => {
             if (hoveredConnId !== conn.id) return null;
-            const start = getPinLocation(conn.sourceId); const end = getPinLocation(conn.targetId);
-            const midX = (start.x + end.x) / 2; const midY = (start.y + end.y) / 2;
+            const start = getPinLocation(conn.sourceId); 
+            const end = getPinLocation(conn.targetId);
+            const midX = (start.x + end.x) / 2; 
+            const midY = (start.y + end.y) / 2;
+            
+            // 计算连线的角度
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            const angle = Math.atan2(dy, dx); // 弧度
+
+            // 计算垂直于线的偏移量 (offset)
+            // 距离中心点 40px
+            const dist = 40;
+            // 垂直角度 = 线角度 - 90度 (PI/2)
+            const offsetX = dist * Math.cos(angle - Math.PI / 2);
+            const offsetY = dist * Math.sin(angle - Math.PI / 2);
+
             const currentColor = conn.color || COLORS.RED;
-            // 轮换颜色逻辑
             const topColor = currentColor === COLORS.GREEN ? COLORS.RED : COLORS.GREEN;
             const bottomColor = currentColor === COLORS.PURPLE ? COLORS.RED : COLORS.PURPLE;
 
             return (
-                <div key={`controls-${conn.id}`} onMouseEnter={() => handleMouseEnter(conn.id)} onMouseLeave={handleMouseLeave} className="pointer-events-auto flex flex-col items-center justify-center gap-1" style={{ position: 'absolute', left: midX, top: midY, transform: 'translate(-50%, -50%)' }}>
+                <div key={`controls-${conn.id}`} onMouseEnter={() => handleMouseEnter(conn.id)} onMouseLeave={handleMouseLeave} className="pointer-events-auto flex flex-col items-center justify-center gap-1" style={{ position: 'absolute', left: midX, top: midY, width: 0, height: 0, overflow: 'visible' }}>
                     
-                    {/* 上方颜色按钮 (-40px) */}
+                    {/* 按钮 1 (沿垂直方向偏移) */}
                     <button 
                         className="absolute w-6 h-6 rounded-full border shadow-md hover:scale-110 transition-transform" 
-                        style={{ backgroundColor: topColor, transform: 'translateY(-40px)' }} 
+                        style={{ 
+                            backgroundColor: topColor, 
+                            // 使用计算出的偏移量定位
+                            transform: `translate(${offsetX}px, ${offsetY}px) translate(-50%, -50%)`
+                        }} 
                         onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, topColor); }} 
                         onMouseDown={e => e.stopPropagation()} 
                     />
                     
-                    {/* 中间删除按钮 */}
+                    {/* 中间删除按钮 (居中) */}
                     <button 
-                        className="w-8 h-8 bg-white border-2 border-red-600 rounded-full flex items-center justify-center text-red-600 shadow-md hover:bg-red-50 hover:scale-110 transition-transform z-10" 
+                        className="absolute w-8 h-8 bg-white border-2 border-red-600 rounded-full flex items-center justify-center text-red-600 shadow-md hover:bg-red-50 hover:scale-110 transition-transform z-10" 
+                        style={{ transform: 'translate(-50%, -50%)' }}
                         onClick={(e) => { e.stopPropagation(); onDeleteConnection(conn.id); }} 
                         onMouseDown={e => e.stopPropagation()}
                     >
                         <X size={16} strokeWidth={3} />
                     </button>
                     
-                    {/* 下方颜色按钮 (+40px) - 我把这里改成了 40px 以保持对称 */}
+                    {/* 按钮 2 (沿相反垂直方向偏移) */}
                     <button 
                         className="absolute w-6 h-6 rounded-full border shadow-md hover:scale-110 transition-transform" 
-                        style={{ backgroundColor: bottomColor, transform: 'translateY(40px)' }} 
+                        style={{ 
+                            backgroundColor: bottomColor, 
+                            // 相反方向就是 负 offset
+                            transform: `translate(${-offsetX}px, ${-offsetY}px) translate(-50%, -50%)`
+                        }} 
                         onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, bottomColor); }} 
                         onMouseDown={e => e.stopPropagation()} 
                     />
