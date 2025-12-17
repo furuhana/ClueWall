@@ -30,7 +30,7 @@ const App: React.FC = () => {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const lastDragPosRef = useRef<{ x: number; y: number } | null>(null); 
   const [maxZIndex, setMaxZIndex] = useState<number>(10);
-  
+   
   // 🟢 选择状态
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
@@ -44,11 +44,11 @@ const App: React.FC = () => {
   const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [isPinMode, setIsPinMode] = useState<boolean>(false);
-  
+   
   // 默认隐藏 UI
   const [isUIHidden, setIsUIHidden] = useState<boolean>(true); 
   const [showHiddenModeToast, setShowHiddenModeToast] = useState(false);
-  
+   
   // 幽灵模式状态
   const [ghostNote, setGhostNote] = useState<{ x: number; y: number; typeIndex: number } | null>(null);
 
@@ -278,7 +278,7 @@ const App: React.FC = () => {
       const worldMouse = toWorld(e.clientX, e.clientY); 
       setView({ x: e.clientX - worldMouse.x * newZoom, y: e.clientY - worldMouse.y * newZoom, zoom: newZoom }); 
   };
-  
+   
   const handleBackgroundMouseDown = (e: React.MouseEvent) => {
     // 🟢 优化：点击空白背景 = 取消幽灵模式 (像 ESC 一样)
     if (ghostNote) {
@@ -347,18 +347,12 @@ const App: React.FC = () => {
   const handleZoomOut = () => setView(v => ({...v, zoom: Math.max(v.zoom - 0.2, 0.1)}));
 
   const handleRotateStart = (e: React.MouseEvent, id: string) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if(!note) return; setRotatingId(id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth:0, initialHeight:0, initialX:0, initialY:0, initialScale:1 }); };
-  
-  // 🟢 确保拉伸开始逻辑还在
+   
+  // 🟢 修复1：允许所有类型上下拉伸 (删除了之前的拦截代码)
   const handleResizeStart = (e: React.MouseEvent, id: string, mode: ResizeMode) => { 
       e.stopPropagation(); e.preventDefault(); 
       const note = notes.find(n => n.id === id); 
       if(!note) return; 
-
-      if (['note', 'dossier', 'scrap'].includes(note.type)) {
-          if (mode === 'TOP' || mode === 'BOTTOM') {
-              return; 
-          }
-      }
 
       const dims = getNoteDimensions(note); 
       setResizingId(id); 
@@ -374,7 +368,7 @@ const App: React.FC = () => {
       isPinDragRef.current = false; 
       setPinDragData({ noteId: id, startX: e.clientX, startY: e.clientY, initialPinX: note.pinX ?? width / 2, initialPinY: note.pinY ?? 10, rotation: note.rotation, width, height }); 
   };
-  
+   
   const handleNodeMouseDown = (e: React.MouseEvent, id: string) => {
     if (e.button === 1 || isSpacePressed) return; 
     e.stopPropagation(); 
@@ -484,15 +478,62 @@ const App: React.FC = () => {
         lastDragPosRef.current = { x: e.clientX, y: e.clientY };
         return;
     }
-    
+     
     if (pinDragData) { /* ... same pin logic ... */ isPinDragRef.current = true; const screenDx = e.clientX - pinDragData.startX; const screenDy = e.clientY - pinDragData.startY; const worldDx = screenDx / view.zoom; const worldDy = screenDy / view.zoom; const rad = -(pinDragData.rotation * Math.PI) / 180; const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad); let newPinX = pinDragData.initialPinX + localDx; let newPinY = pinDragData.initialPinY + localDy; newPinX = Math.max(0, Math.min(newPinX, pinDragData.width)); newPinY = Math.max(0, Math.min(newPinY, pinDragData.height)); setNotes(prev => prev.map(n => n.id === pinDragData.noteId ? { ...n, pinX: newPinX, pinY: newPinY } : n)); return; }
     if (isPanning && lastMousePosRef.current) { const dx = e.clientX - lastMousePosRef.current.x; const dy = e.clientY - lastMousePosRef.current.y; setView(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy })); lastMousePosRef.current = { x: e.clientX, y: e.clientY }; return; }
     if (rotatingId && transformStart) { const deltaX = e.clientX - transformStart.mouseX; const newRotation = transformStart.initialRotation - (deltaX * 0.5); setNotes(prev => prev.map(n => n.id === rotatingId ? { ...n, rotation: newRotation } : n)); return; }
-    
-    // 🟢 确保拉伸逻辑存在于 handleMouseMove 中
-    if (resizingId && transformStart) { const note = notes.find(n => n.id === resizingId); if(!note) return; const mode = transformStart.resizeMode; const screenDx = e.clientX - transformStart.mouseX; const screenDy = e.clientY - transformStart.mouseY; const worldDx = screenDx / view.zoom; const worldDy = screenDy / view.zoom; const rad = -(transformStart.initialRotation * Math.PI) / 180; const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
-        if (mode === 'CORNER') { const aspectRatio = transformStart.initialWidth / transformStart.initialHeight; const avgWidthChange = (-localDx + localDy * aspectRatio) / 2; let newWidth = Math.max(30, transformStart.initialWidth + avgWidthChange); let newHeight = newWidth / aspectRatio; const widthChange = newWidth - transformStart.initialWidth; const heightChange = newHeight - transformStart.initialHeight; setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, scale: ['note','dossier','scrap'].includes(n.type) ? (newWidth/(transformStart.initialWidth/transformStart.initialScale)) : undefined, x: transformStart.initialX - (widthChange / 2), y: transformStart.initialY - (heightChange / 2) } : n)); }
-        else { let newWidth = transformStart.initialWidth; let newHeight = transformStart.initialHeight; let newX = transformStart.initialX; let newY = transformStart.initialY; const MIN_W = 30; const MIN_H = 30; if (mode === 'LEFT') { newWidth = Math.max(MIN_W, transformStart.initialWidth - localDx); newX = transformStart.initialX + localDx; } else if (mode === 'RIGHT') { newWidth = Math.max(MIN_W, transformStart.initialWidth + localDx); } else if (mode === 'TOP') { newHeight = Math.max(MIN_H, transformStart.initialHeight - localDy); newY = transformStart.initialY + localDy; } else if (mode === 'BOTTOM') { newHeight = Math.max(MIN_H, transformStart.initialHeight + localDy); } setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, x: newX, y: newY } : n)); } return;
+     
+    // 🟢 修复2：更新拉伸计算逻辑，加入最小高度限制（Dynamic Min Height）
+    if (resizingId && transformStart) { 
+        const note = notes.find(n => n.id === resizingId); 
+        if(!note) return; 
+        const mode = transformStart.resizeMode; 
+        const screenDx = e.clientX - transformStart.mouseX; 
+        const screenDy = e.clientY - transformStart.mouseY; 
+        const worldDx = screenDx / view.zoom; 
+        const worldDy = screenDy / view.zoom; 
+        const rad = -(transformStart.initialRotation * Math.PI) / 180; 
+        const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); 
+        const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
+
+        if (mode === 'CORNER') { 
+            const aspectRatio = transformStart.initialWidth / transformStart.initialHeight; 
+            const avgWidthChange = (-localDx + localDy * aspectRatio) / 2; 
+            let newWidth = Math.max(30, transformStart.initialWidth + avgWidthChange); 
+            let newHeight = newWidth / aspectRatio; 
+            const widthChange = newWidth - transformStart.initialWidth; 
+            const heightChange = newHeight - transformStart.initialHeight; 
+            setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, scale: ['note','dossier','scrap'].includes(n.type) ? (newWidth/(transformStart.initialWidth/transformStart.initialScale)) : undefined, x: transformStart.initialX - (widthChange / 2), y: transformStart.initialY - (heightChange / 2) } : n)); 
+        } else { 
+            let newWidth = transformStart.initialWidth; 
+            let newHeight = transformStart.initialHeight; 
+            let newX = transformStart.initialX; 
+            let newY = transformStart.initialY; 
+            
+            // 🟢 定义各类型的本体最小高度
+            let minH = 30;
+            if (note.type === 'note') minH = 160;
+            if (note.type === 'dossier') minH = 224;
+            if (note.type === 'scrap') minH = 50;
+
+            const MIN_W = 30; 
+
+            if (mode === 'LEFT') { 
+                newWidth = Math.max(MIN_W, transformStart.initialWidth - localDx); 
+                newX = transformStart.initialX + (transformStart.initialWidth - newWidth); 
+            } else if (mode === 'RIGHT') { 
+                newWidth = Math.max(MIN_W, transformStart.initialWidth + localDx); 
+            } else if (mode === 'TOP') { 
+                // 🟢 向上拉伸：限制高度，并确保底部位置不变
+                newHeight = Math.max(minH, transformStart.initialHeight - localDy); 
+                newY = (transformStart.initialY + transformStart.initialHeight) - newHeight;
+            } else if (mode === 'BOTTOM') { 
+                // 🟢 向下拉伸：限制高度
+                newHeight = Math.max(minH, transformStart.initialHeight + localDy); 
+            } 
+            setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, x: newX, y: newY } : n)); 
+        } 
+        return;
     }
     const worldMouse = toWorld(e.clientX, e.clientY); if (connectingNodeId) setMousePos({ x: worldMouse.x, y: worldMouse.y }); 
   }, [isPanning, draggingId, connectingNodeId, view, toWorld, rotatingId, resizingId, transformStart, pinDragData, notes, selectionBox, selectedIds, ghostNote]); 
@@ -558,13 +599,23 @@ const App: React.FC = () => {
       <audio ref={audioRef} src="/home_bgm.mp3" loop />
       {isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-3 bg-black/70 backdrop-blur-md text-white/90 px-4 py-2 rounded-full border border-white/10 shadow-lg pointer-events-none"><Loader2 className="animate-spin text-yellow-400" size={16} /><span className="font-mono text-xs tracking-wider">SYNCING...</span></div>}
       {!isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-2 pointer-events-none opacity-50 hover:opacity-100 transition-opacity"><div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" /><span className="font-mono text-[10px] text-white/70 tracking-widest">SECURE CONN.</span></div>}
-      
+       
       {/* 提示 UI */}
       <div className={`fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-full backdrop-blur-md border border-white/10 transition-opacity duration-500 pointer-events-none z-[13000] ${showHiddenModeToast ? 'opacity-100' : 'opacity-0'}`}>
           <span className="font-mono text-xs">PRESS ESC TO SHOW UI</span>
       </div>
 
-      {!isUIHidden && <div className="absolute top-4 left-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto"><div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-float border border-white/10 max-w-sm"><h1 className="text-xl font-bold font-handwriting mb-1 text-red-500">CASE #2023-X</h1><div className="flex flex-col gap-2"><button onClick={() => setIsPinMode(!isPinMode)} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600'}`}><MapPin size={16} /> {isPinMode ? 'DONE' : 'PIN TOOL'}</button><div className="grid grid-cols-2 gap-2 mt-2"><button onClick={() => addNote('note')} className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs">Add Note</button><button onClick={() => addNote('photo')} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button><button onClick={() => addNote('dossier')} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button><button onClick={() => addNote('scrap')} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button><button onClick={() => addNote('marker')} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button><button onClick={clearBoard} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1"><Trash2 size={12}/> Clear</button></div></div></div></div>}
+      {!isUIHidden && (
+        <div 
+          className="absolute top-4 left-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto"
+          // 🟢 修复3：阻止事件冒泡，修复按钮点击无效问题
+          onMouseDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-float border border-white/10 max-w-sm"><h1 className="text-xl font-bold font-handwriting mb-1 text-red-500">CASE #2023-X</h1><div className="flex flex-col gap-2"><button onClick={() => setIsPinMode(!isPinMode)} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600'}`}><MapPin size={16} /> {isPinMode ? 'DONE' : 'PIN TOOL'}</button><div className="grid grid-cols-2 gap-2 mt-2"><button onClick={() => addNote('note')} className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs">Add Note</button><button onClick={() => addNote('photo')} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button><button onClick={() => addNote('dossier')} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button><button onClick={() => addNote('scrap')} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button><button onClick={() => addNote('marker')} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button><button onClick={clearBoard} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1"><Trash2 size={12}/> Clear</button></div></div></div>
+        </div>
+      )}
+
       {!isUIHidden && <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto"><div className="bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-float"><button onClick={handleZoomIn} className="p-2 hover:bg-white/10 rounded-t-lg transition-colors"><Plus size={20} /></button><div className="text-xs font-mono py-1 w-12 text-center border-y border-white/10 select-none">{Math.round(view.zoom * 100)}%</div><button onClick={handleZoomOut} className="p-2 hover:bg-white/10 border-b border-white/10 transition-colors"><Minus size={20} /></button><button onClick={toggleMusic} className="p-2 hover:bg-white/10 rounded-b-lg transition-colors" title={isMusicPlaying ? "Mute Music" : "Play Music"}>{isMusicPlaying ? <Volume2 size={20} /> : <VolumeX size={20} />}</button></div><div className="bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-float"><button onClick={handleResetView} className="p-2 hover:bg-white/10 rounded-t-lg border-b border-white/10 transition-colors" title="Reset View"><LocateFixed size={20} /></button><button onClick={() => { setIsUIHidden(true); }} className="p-2 hover:bg-white/10 rounded-b-lg transition-colors" title="Hide UI"><Maximize size={20} /></button></div></div>}
       {connectingNodeId && !isUIHidden && <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[9999] bg-red-600 text-white px-6 py-2 rounded-full shadow-xl animate-bounce font-bold pointer-events-none">Connecting Evidence...</div>}
       {isDraggingFile && <div className="absolute inset-0 bg-black/60 z-[10000] flex items-center justify-center border-8 border-dashed border-gray-400 m-4 rounded-xl pointer-events-none"><div className="bg-gray-800 text-white px-8 py-6 rounded-xl shadow-2xl flex flex-col items-center gap-4 animate-bounce"><UploadCloud size={64} className="text-blue-400"/><h2 className="text-2xl font-bold uppercase tracking-widest">Drop Evidence File</h2></div></div>}
@@ -594,8 +645,8 @@ const App: React.FC = () => {
             />
           ))}
           <ConnectionLayer connections={connections} notes={notes} connectingNodeId={connectingNodeId} mousePos={mousePos} onDeleteConnection={handleDeleteConnection} onPinClick={handlePinClick} isPinMode={isPinMode} onConnectionColorChange={handleUpdateConnectionColor} onPinMouseDown={handlePinMouseDown} />
-          
-          {/* 🟢 幽灵模式的可视化预览 (带图标和颜色 - 交互优化：点击图标确认，点击背景取消) */}
+           
+          {/* 🟢 幽灵模式的可视化预览 */}
           {ghostNote && (() => {
               const currentType = NOTE_TYPES[ghostNote.typeIndex];
               // 定义样式映射
@@ -632,7 +683,7 @@ const App: React.FC = () => {
 
           {draggingId && selectedIds.size <= 1 && (() => { const n = notes.find(i => i.id === draggingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">X: {Math.round(n.x)}, Y: {Math.round(n.y)}</div></div> })()}
           {rotatingId && (() => { const n = notes.find(i => i.id === rotatingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{Math.round(n.rotation)}°</div></div> })()}
-          
+           
           {/* 🟢 拉伸数值显示 */}
           {resizingId && transformStart && (() => {
              const n = notes.find(i => i.id === resizingId); if (!n) return null;
@@ -642,7 +693,7 @@ const App: React.FC = () => {
              else text = `W: ${Math.round(n.width || 0)} H: ${Math.round(n.height || 0)}`;
              return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{text}</div></div>
           })()}
-          
+           
           {pinDragData && (() => {
              const n = notes.find(i => i.id === pinDragData.noteId);
              if (!n) return null;
