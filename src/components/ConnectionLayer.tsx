@@ -82,19 +82,43 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({ connections, notes, c
             );
         })}
 
+        {/* 🟢 修复后的垂直操作按钮层 */}
         {connections.map(conn => {
             if (hoveredConnId !== conn.id) return null;
             const start = getPinLocation(conn.sourceId); const end = getPinLocation(conn.targetId);
             const midX = (start.x + end.x) / 2; const midY = (start.y + end.y) / 2;
             const currentColor = conn.color || COLORS.RED;
+            // 轮换颜色逻辑
             const topColor = currentColor === COLORS.GREEN ? COLORS.RED : COLORS.GREEN;
             const bottomColor = currentColor === COLORS.PURPLE ? COLORS.RED : COLORS.PURPLE;
 
             return (
-                <div key={`controls-${conn.id}`} onMouseEnter={() => handleMouseEnter(conn.id)} onMouseLeave={handleMouseLeave} className="pointer-events-auto" style={{ position: 'absolute', left: midX, top: midY, transform: 'translate(-50%, -50%)' }}>
-                    <button className="absolute w-6 h-6 rounded-full border shadow-md hover:scale-110 transition-transform" style={{ backgroundColor: topColor, transform: 'translate(-50%, -40px)' }} onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, topColor); }} onMouseDown={e => e.stopPropagation()} />
-                    <button className="w-8 h-8 bg-white border-2 border-red-600 rounded-full flex items-center justify-center text-red-600 shadow-md hover:bg-red-50 hover:scale-110 transition-transform" onClick={(e) => { e.stopPropagation(); onDeleteConnection(conn.id); }} onMouseDown={e => e.stopPropagation()}><X size={16} strokeWidth={3} /></button>
-                    <button className="absolute w-6 h-6 rounded-full border shadow-md hover:scale-110 transition-transform" style={{ backgroundColor: bottomColor, transform: 'translate(-50%, 15px)' }} onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, bottomColor); }} onMouseDown={e => e.stopPropagation()} />
+                <div key={`controls-${conn.id}`} onMouseEnter={() => handleMouseEnter(conn.id)} onMouseLeave={handleMouseLeave} className="pointer-events-auto flex flex-col items-center justify-center gap-1" style={{ position: 'absolute', left: midX, top: midY, transform: 'translate(-50%, -50%)' }}>
+                    
+                    {/* 上方颜色按钮 (-40px) */}
+                    <button 
+                        className="absolute w-6 h-6 rounded-full border shadow-md hover:scale-110 transition-transform" 
+                        style={{ backgroundColor: topColor, transform: 'translateY(-40px)' }} 
+                        onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, topColor); }} 
+                        onMouseDown={e => e.stopPropagation()} 
+                    />
+                    
+                    {/* 中间删除按钮 */}
+                    <button 
+                        className="w-8 h-8 bg-white border-2 border-red-600 rounded-full flex items-center justify-center text-red-600 shadow-md hover:bg-red-50 hover:scale-110 transition-transform z-10" 
+                        onClick={(e) => { e.stopPropagation(); onDeleteConnection(conn.id); }} 
+                        onMouseDown={e => e.stopPropagation()}
+                    >
+                        <X size={16} strokeWidth={3} />
+                    </button>
+                    
+                    {/* 下方颜色按钮 (+40px) - 我把这里改成了 40px 以保持对称 */}
+                    <button 
+                        className="absolute w-6 h-6 rounded-full border shadow-md hover:scale-110 transition-transform" 
+                        style={{ backgroundColor: bottomColor, transform: 'translateY(40px)' }} 
+                        onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, bottomColor); }} 
+                        onMouseDown={e => e.stopPropagation()} 
+                    />
                 </div>
             );
         })}
