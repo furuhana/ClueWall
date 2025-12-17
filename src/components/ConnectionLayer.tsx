@@ -82,7 +82,7 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({ connections, notes, c
             );
         })}
 
-        {/* 🟢 修复：按钮跟随连线方向排列 (Inline) */}
+        {/* 🟢 修复后的垂直按钮层 (Perpendicular) */}
         {connections.map(conn => {
             if (hoveredConnId !== conn.id) return null;
             const start = getPinLocation(conn.sourceId); 
@@ -95,11 +95,14 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({ connections, notes, c
             const dy = end.y - start.y;
             const angle = Math.atan2(dy, dx); 
 
-            // 2. 计算偏移量 (在线的方向上偏移)
-            // dist 是按钮距离中心的距离，稍微加大一点避免遮挡
-            const dist = 45; 
-            const offsetX = dist * Math.cos(angle);
-            const offsetY = dist * Math.sin(angle);
+            // 2. 计算垂直方向的角度 (当前角度 - 90度)
+            // 这会得到一个垂直于连线的方向向量
+            const perpAngle = angle - Math.PI / 2;
+
+            // 3. 计算偏移量
+            const dist = 40; // 按钮距离中心的距离
+            const offsetX = dist * Math.cos(perpAngle);
+            const offsetY = dist * Math.sin(perpAngle);
 
             const currentColor = conn.color || COLORS.RED;
             const color1 = currentColor === COLORS.GREEN ? COLORS.RED : COLORS.GREEN;
@@ -108,19 +111,19 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({ connections, notes, c
             return (
                 <div key={`controls-${conn.id}`} onMouseEnter={() => handleMouseEnter(conn.id)} onMouseLeave={handleMouseLeave} className="pointer-events-auto flex flex-col items-center justify-center gap-1" style={{ position: 'absolute', left: midX, top: midY, width: 0, height: 0, overflow: 'visible' }}>
                     
-                    {/* 按钮 1 (向起点方向偏移: 负offset) */}
+                    {/* 按钮 1 (向一侧垂直偏移) */}
                     <button 
                         className="absolute w-6 h-6 rounded-full border shadow-md hover:scale-110 transition-transform" 
                         style={{ 
                             backgroundColor: color1, 
-                            // 负号表示向“起点”方向移动
-                            transform: `translate(${-offsetX}px, ${-offsetY}px) translate(-50%, -50%)`
+                            // 正向偏移
+                            transform: `translate(${offsetX}px, ${offsetY}px) translate(-50%, -50%)`
                         }} 
                         onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, color1); }} 
                         onMouseDown={e => e.stopPropagation()} 
                     />
                     
-                    {/* 中间删除按钮 (居中) */}
+                    {/* 中间删除按钮 (居中不动) */}
                     <button 
                         className="absolute w-8 h-8 bg-white border-2 border-red-600 rounded-full flex items-center justify-center text-red-600 shadow-md hover:bg-red-50 hover:scale-110 transition-transform z-10" 
                         style={{ transform: 'translate(-50%, -50%)' }}
@@ -130,13 +133,13 @@ const ConnectionLayer: React.FC<ConnectionLayerProps> = ({ connections, notes, c
                         <X size={16} strokeWidth={3} />
                     </button>
                     
-                    {/* 按钮 2 (向终点方向偏移: 正offset) */}
+                    {/* 按钮 2 (向另一侧垂直偏移) */}
                     <button 
                         className="absolute w-6 h-6 rounded-full border shadow-md hover:scale-110 transition-transform" 
                         style={{ 
                             backgroundColor: color2, 
-                            // 正号表示向“终点”方向移动
-                            transform: `translate(${offsetX}px, ${offsetY}px) translate(-50%, -50%)`
+                            // 反向偏移 (负号)
+                            transform: `translate(${-offsetX}px, ${-offsetY}px) translate(-50%, -50%)`
                         }} 
                         onClick={(e) => { e.stopPropagation(); onConnectionColorChange && onConnectionColorChange(conn.id, color2); }} 
                         onMouseDown={e => e.stopPropagation()} 
