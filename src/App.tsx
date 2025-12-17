@@ -39,7 +39,7 @@ const App: React.FC = () => {
   const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [isPinMode, setIsPinMode] = useState<boolean>(false);
-  const [isUIHidden, setIsUIHidden] = useState<boolean>(true); 
+  const [isUIHidden, setIsUIHidden] = useState<boolean>(false); // 默认不隐藏
   const [showHiddenModeToast, setShowHiddenModeToast] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const dragCounter = useRef(0);
@@ -52,7 +52,42 @@ const App: React.FC = () => {
   useEffect(() => { interactionRef.current = { draggingId, resizingId, rotatingId, pinDragData, selectionBox }; }, [draggingId, resizingId, rotatingId, pinDragData, selectionBox]);
   const toWorld = useCallback((screenX: number, screenY: number) => { return { x: (screenX - view.x) / view.zoom, y: (screenY - view.y) / view.zoom }; }, [view]);
 
-  // 1. 实时订阅
+  // 1. 🟢 新增：全局键盘监听 (ESC 退出隐藏模式, 空格平移)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // ESC 键逻辑
+      if (e.key === 'Escape') {
+        setIsUIHidden(false);         // 退出隐藏模式
+        setConnectingNodeId(null);    // 取消连线
+        setIsPinMode(false);          // 取消钉子模式
+        setSelectionBox(null);        // 取消框选
+        setDraggingId(null);          // 取消拖拽
+        setRotatingId(null);
+        setResizingId(null);
+      }
+      // 空格键逻辑
+      if (e.code === 'Space' && !e.repeat) {
+        setIsSpacePressed(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsSpacePressed(false);
+        setIsPanning(false); // 松开空格时停止平移
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  // 2. 实时订阅
   useEffect(() => {
     const fetchInitialData = async () => {
       const { data: notesData } = await supabase.from('notes').select('*');
@@ -209,7 +244,6 @@ const App: React.FC = () => {
         const screenBoxBottom = Math.max(selectionBox.startY, currentY);
 
         // 2. 将屏幕选框 转换到 世界坐标 (World Space)
-        // 这一步至关重要：把你的蓝色框框“投影”到游戏地图里去
         const worldBoxLeft = (screenBoxLeft - view.x) / view.zoom;
         const worldBoxRight = (screenBoxRight - view.x) / view.zoom;
         const worldBoxTop = (screenBoxTop - view.y) / view.zoom;
@@ -220,7 +254,6 @@ const App: React.FC = () => {
         notes.forEach(note => {
             // 3. 获取卡片在世界坐标里的真实体积
             const dims = getNoteDimensions(note);
-            // 防御性编码：如果没取到宽，默认给个200，确保能被点到
             const width = (dims.width || note.width || 200) * (note.scale || 1);
             const height = (dims.height || note.height || 200) * (note.scale || 1);
 
@@ -230,8 +263,6 @@ const App: React.FC = () => {
             const noteBottom = note.y + height;
 
             // 4. 碰撞判定 (AABB Intersection)
-            // 只要这两个世界坐标系里的矩形碰到了，就算选中
-            // 逻辑：只要不是完全在左边、右边、上边、下边，那就是重叠了
             const isMissed = 
                 noteLeft > worldBoxRight || 
                 noteRight < worldBoxLeft || 
