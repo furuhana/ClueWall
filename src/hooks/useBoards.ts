@@ -10,51 +10,57 @@ export const useBoards = (
 
     // Fetch Boards & Subscribe to Realtime Changes
     useEffect(() => {
+        let isMounted = true;
+
         // Initial Fetch
         const fetchBoards = async () => {
-            console.log("🔥 [Init] 开始从数据库加载画板...");
-            const { data, error } = await supabase.from('boards').select('*').order('created_at', { ascending: true });
+            console.log("🔥 [useBoards] 开始获取画板列表 (Simple Mode)...");
+
+            // PURE SELECT - No sorting to prevent 400 errors if columns missing/indexed wrong
+            const { data, error } = await supabase.from('boards').select('*');
 
             if (error) {
-                console.error("🔥 [Init] 获取画板失败:", error);
-                // Alert is intrusive on reload, maybe just log unless critical
-                console.log("Database fetch error, check console.");
+                console.error("🔥 [useBoards] 致命错误 (400?):", error);
+                // Don't alert immediately on refresh loops, but log heavily
                 return;
             }
 
-            console.log("🔥 [Init] 数据库返回:", data);
+            if (!isMounted) return;
+
+            console.log("🔥 [useBoards] 数据库返回:", data);
 
             if (data && data.length > 0) {
-                // Case A: Data exists
+                // 1. Update List
                 setBoards(data);
-                // Force select the first one if we don't have one selected
-                setCurrentBoardId(prev => prev || data[0].id);
-                console.log("🔥 [Init] 已自动选中画板:", data[0].id);
+
+                // 2. Immediate Active Switch
+                // Always pick the first valid ID from the array. 
+                // This eliminates 'loading-board' state.
+                const firstId = data[0].id; // e.g. "v1" or whatever is in DB
+                console.log(`🔥 [useBoards] 锁定活动画板: ${firstId}`);
+                setCurrentBoardId(firstId);
             } else {
-                // Case B: Zero data -> Create Default
-                console.log("🔥 [Init] 数据库为空，正在创建初始档案库...");
-                const defaultBoard = {
-                    id: 'main-case',
-                    name: '档案库 01'
-                };
+                // Empty DB
+                console.log("🔥 [useBoards] 列表为空，初始化默认画板...");
+                createDefaultBoard();
+            }
+        };
 
-                try {
-                    const { data: newBoard, error: insertError } = await supabase
-                        .from('boards')
-                        .insert([defaultBoard])
-                        .select();
+        const createDefaultBoard = async () => {
+            const defaultId = `case-${Date.now()}`;
+            const defaultBoard = {
+                id: defaultId,
+                name: '档案库 01'
+            };
 
-                    if (insertError) {
-                        console.error("🔥 [Init] 创建默认画板失败:", insertError);
-                        alert("无法自动创建初始画板，请检查数据库权限 (RLS).");
-                    } else if (newBoard && newBoard.length > 0) {
-                        console.log("🔥 [Init] 初始画板创建成功:", newBoard[0]);
-                        setBoards(newBoard);
-                        setCurrentBoardId(newBoard[0].id);
-                    }
-                } catch (e) {
-                    console.error("🔥 [Init] 严重错误:", e);
-                }
+            const { data, error } = await supabase.from('boards').insert([defaultBoard]).select();
+
+            if (data && data.length > 0) {
+                if (!isMounted) return;
+                setBoards([data[0]]);
+                setCurrentBoardId(data[0].id);
+            } else if (error) {
+                console.error("Failed to create default board:", error);
             }
         };
 
@@ -71,18 +77,26 @@ export const useBoards = (
                         const newBoard = payload.new as Board;
                         setBoards(prev => {
                             if (prev.some(b => b.id === newBoard.id)) return prev;
-                            const next = [...prev, newBoard];
-                            return next;
+                            return [...prev, newBoard];
                         });
-                        // If no board selected, select the new one
+                        // Optional: Switch to new board if explicitly added? 
+                        // Usually we only switch if user triggered it, but for realtime we just add to list.
+                        // UNLESS we have no board selected.
                         setCurrentBoardId(curr => curr || newBoard.id);
+
                     } else if (payload.eventType === 'UPDATE') {
                         const updatedBoard = payload.new as Board;
                         setBoards(prev => prev.map(b => b.id === updatedBoard.id ? updatedBoard : b));
+
+                        // Handle ID change if current board was modified
+                        const oldId = payload.old?.id; // Note: payload.old only has ID if identity replica
+                        if (oldId && updatedBoard.id !== oldId) {
+                            setCurrentBoardId(curr => (curr === oldId ? updatedBoard.id : curr));
+                        }
                     } else if (payload.eventType === 'DELETE') {
                         const deletedId = payload.old.id;
                         setBoards(prev => prev.filter(b => b.id !== deletedId));
-                        // If current board deleted, clear ID to trigger fail-safe or reload
+                        // If active board deleted
                         setCurrentBoardId(curr => (curr === deletedId ? null : curr));
                     }
                 }
@@ -90,18 +104,12 @@ export const useBoards = (
             .subscribe();
 
         return () => {
+            isMounted = false;
             supabase.removeChannel(channel);
         };
-    }, []);
+    }, []); // Run once on mount
 
-    // Fail-safe: If currentBoardId is null but we have boards, pick the first one.
-    useEffect(() => {
-        if (!currentBoardId && boards.length > 0) {
-            console.log("🔥 [Fail-safe] 发现 ID 为空但有数据，自动选第一个");
-            setCurrentBoardId(boards[0].id);
-        }
-    }, [currentBoardId, boards]);
-
+    // Add Board
     const addBoard = useCallback(async () => {
         const newId = `case-${Date.now()}`;
         const newBoardPayload = {
@@ -111,79 +119,59 @@ export const useBoards = (
 
         try {
             const { data, error } = await supabase.from('boards').insert([newBoardPayload]).select();
-
-            if (error) {
-                console.error("Add board error:", error);
-                alert("创建失败: " + error.message);
-                return;
-            }
+            if (error) throw error;
 
             if (data && data.length > 0) {
                 const created = data[0];
-                setBoards(prev => {
-                    if (prev.some(b => b.id === created.id)) return prev;
-                    return [...prev, created];
-                });
-                setCurrentBoardId(created.id);
+                setBoards(prev => [...prev, created]);
+                setCurrentBoardId(created.id); // Switch to it
                 if (onBoardSwitch) onBoardSwitch();
             }
         } catch (e: any) {
-            console.error("Add board exception:", e);
+            console.error("Add failed:", e);
+            alert(e.message);
         }
     }, [boards, onBoardSwitch]);
 
+    // Rename Board
     const renameBoard = useCallback(async (id: string, newName: string) => {
-        // Optimistic
         setBoards(prev => prev.map(b => b.id === id ? { ...b, name: newName } : b));
-
-        const { error } = await supabase.from('boards').update({ name: newName }).eq('id', id);
-        if (error) {
-            console.error("Rename failed:", error);
-            // Revert or alert? Alert for now.
-            alert("Rename failed in DB: " + error.message);
-        }
+        await supabase.from('boards').update({ name: newName }).eq('id', id);
     }, []);
 
+    // Delete Board
     const deleteBoard = useCallback(async (id: string) => {
-        if (!window.confirm("CONFIRM DELETE? This will destroy all evidence in this case.")) return;
-
+        if (!window.confirm("Permanently delete this case?")) return;
         try {
-            // Manual cascade delete because we aren't sure if DB has cascade set
             await supabase.from('notes').delete().eq('board_id', id);
             await supabase.from('connections').delete().eq('board_id', id);
-
-            const { error } = await supabase.from('boards').delete().eq('id', id);
-            if (error) throw error;
-
+            await supabase.from('boards').delete().eq('id', id);
+            // State update handled by Realtime usually, but optimistic is faster
             setBoards(prev => {
                 const next = prev.filter(b => b.id !== id);
                 if (currentBoardId === id) {
-                    if (next.length > 0) setCurrentBoardId(next[0].id);
-                    else setCurrentBoardId(null); // Will likely trigger empty state or wait for new one
+                    setCurrentBoardId(next.length > 0 ? next[0].id : null);
                 }
                 return next;
             });
-        } catch (e: any) {
-            console.error("Delete failed:", e);
-            alert("Delete failed: " + e.message);
+        } catch (error) {
+            console.error(error);
         }
     }, [currentBoardId]);
 
+    // Update Board ID
     const updateBoardId = useCallback(async (oldId: string, newId: string): Promise<boolean> => {
         if (!newId || newId === oldId) return false;
-
         try {
             const { error } = await supabase.from('boards').update({ id: newId }).eq('id', oldId);
             if (error) throw error;
 
             setBoards(prev => prev.map(b => b.id === oldId ? { ...b, id: newId } : b));
-            if (currentBoardId === oldId) {
-                setCurrentBoardId(newId);
-            }
+            if (currentBoardId === oldId) setCurrentBoardId(newId);
             return true;
         } catch (e: any) {
-            console.error("Update ID failed:", e);
-            alert("Update ID Failed: " + e.message);
+            console.error("ID Update Error:", e);
+            alert("ID Modification Error: " + e.message);
             return false;
         }
     }, [currentBoardId]);
