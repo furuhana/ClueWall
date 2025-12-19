@@ -4,8 +4,8 @@ import { Note, Connection } from '../types';
 import { deleteImageFromDrive } from '../api';
 
 export const useBoardData = (
-  activeBoardId: string,
-  interactionRef: React.MutableRefObject<{ draggingId: string | null; resizingId: string | null; rotatingId: string | null }>
+  activeBoardId: number | undefined,
+  interactionRef: React.MutableRefObject<{ draggingId: number | null; resizingId: number | null; rotatingId: number | null }>
 ) => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -14,6 +14,13 @@ export const useBoardData = (
 
   // 实时订阅
   useEffect(() => {
+    if (activeBoardId === undefined || activeBoardId === null) {
+      setNotes([]);
+      setConnections([]);
+      setIsLoading(false);
+      return;
+    }
+
     const fetchInitialData = async () => {
       console.log("当前加载的画板ID:", activeBoardId);
       // 1. Query Filter
@@ -70,6 +77,7 @@ export const useBoardData = (
 
   // 3. Save Injection
   const saveToCloud = useCallback(async (changedNotes: Note[], changedConns: Connection[]) => {
+    if (!activeBoardId) return;
     if (changedNotes.length > 0) {
       const notesToSave = changedNotes.map(n => ({ ...n, board_id: activeBoardId }));
       await supabase.from('notes').upsert(notesToSave);
@@ -80,14 +88,14 @@ export const useBoardData = (
     }
   }, [activeBoardId]);
 
-  const deleteFromCloud = useCallback(async (noteId?: string, connId?: string) => {
+  const deleteFromCloud = useCallback(async (noteId?: number, connId?: number) => {
     // Note: Deletion usually doesn't require board_id if ID is unique, but RLS might require it. 
     // User asked NOT to modify deletion logic, so keeping as is (deleting by ID).
     if (noteId) await supabase.from('notes').delete().eq('id', noteId);
     if (connId) await supabase.from('connections').delete().eq('id', connId);
   }, []);
 
-  const handleDeleteNote = useCallback((id: string) => {
+  const handleDeleteNote = useCallback((id: number) => {
     const targetNote = notes.find(n => n.id === id);
     if (targetNote && targetNote.fileId) {
       deleteImageFromDrive(targetNote.fileId);
@@ -102,7 +110,7 @@ export const useBoardData = (
     relatedConns.forEach(c => deleteFromCloud(undefined, c.id));
   }, [notes, connections, deleteFromCloud]);
 
-  const handleDeleteConnection = useCallback((id: string) => {
+  const handleDeleteConnection = useCallback((id: number) => {
     const nextConns = connections.filter(c => c.id !== id);
     setConnections(nextConns);
     deleteFromCloud(undefined, id);

@@ -31,25 +31,18 @@ interface SettingsModalProps {
     isOpen: boolean;
     board: Board | null;
     onClose: () => void;
-    onUpdateId: (oldId: string, newId: string) => Promise<boolean | void>;
-    onDelete: (id: string) => Promise<void>;
+    onUpdateId: (oldId: string, newId: string) => Promise<boolean | void>; // Deprecated in UI but keeping type signature for now or removing?
+    // Actually updateBoardId in useBoards removed ID update. We should remove this prop.
+    onDelete: (id: number) => Promise<void>;
 }
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, board, onClose, onUpdateId, onDelete }) => {
-    // We use a local state for the input, sync it when board changes
-    const [tempId, setTempId] = useState('');
-
-    useEffect(() => {
-        if (board) setTempId(board.id);
-    }, [board]);
-
+const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, board, onClose, onDelete }) => {
     if (!isOpen || !board) return null;
 
     return (
         <div
             className="fixed inset-0 z-[20000] bg-black/60 backdrop-blur-sm flex items-center justify-center pointer-events-auto"
             onClick={(e) => {
-                // Close if clicking the background
                 if (e.target === e.currentTarget) onClose();
             }}
         >
@@ -70,44 +63,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, board, onClose, o
                         <div className="text-white font-mono text-lg">{board.name}</div>
                     </div>
 
-                    {/* ID Edit Section */}
+                    {/* ID Edit Section REMOVED - Auto-increment IDs should not be edited manually */}
                     <div>
-                        <label className="block text-xs uppercase tracking-widest text-gray-500 mb-1">Board ID (Database Key)</label>
-                        <input
-                            type="text"
-                            value={tempId}
-                            onChange={(e) => setTempId(e.target.value)}
-                            className="w-full bg-black/50 border border-white/10 rounded px-2 py-2 font-mono text-sm focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition-all"
-                            placeholder="Enter new ID..."
-                        />
-                        <div className="flex items-start gap-2 mt-2 px-2 py-1 bg-red-900/20 rounded border border-red-900/30 text-red-300">
-                            <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
-                            <p className="text-[10px] leading-tight">
-                                Changing the ID requires DB foreign keys to be set to <code>ON UPDATE CASCADE</code>. Otherwise, evidence links may break.
-                            </p>
-                        </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex gap-2 border-t border-white/10 pt-4">
-                        <button
-                            onClick={async () => {
-                                if (tempId !== board.id) {
-                                    // Use boolean return logic to decide whether to close
-                                    const success = await onUpdateId(board.id, tempId);
-                                    if (success) onClose();
-                                } else {
-                                    onClose();
-                                }
-                            }}
-                            className="flex-1 bg-blue-900/50 hover:bg-blue-800 text-blue-100 py-2 rounded text-xs font-bold uppercase tracking-wider transition-colors"
-                        >
-                            Save Changes
-                        </button>
+                        <label className="block text-xs uppercase tracking-widest text-gray-500 mb-1">Case ID</label>
+                        <div className="text-white font-mono text-lg text-gray-400">#{board.id}</div>
                     </div>
 
                     {/* Delete Section */}
-                    <div className="pt-2">
+                    <div className="pt-2 border-t border-white/10">
                         <button
                             onClick={async () => {
                                 await onDelete(board.id);
@@ -133,12 +96,12 @@ interface ClueWallAppProps {
 
 const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole }) => {
     // 1. Interaction Ref for Conflict Resolution
-    const interactionRef = useRef<{ draggingId: string | null; resizingId: string | null; rotatingId: string | null }>({ draggingId: null, resizingId: null, rotatingId: null });
+    const interactionRef = useRef<{ draggingId: number | null; resizingId: number | null; rotatingId: number | null }>({ draggingId: null, resizingId: null, rotatingId: null });
 
     // 2. Boards Management
     const {
         boards, currentBoardId, setCurrentBoardId,
-        addBoard, renameBoard, deleteBoard, updateBoardId
+        addBoard, renameBoard, deleteBoard // updateBoardId removed
     } = useBoards(session.user.id);
 
     // 3. Board Data (Board Isolation)
@@ -214,7 +177,7 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole }) => {
 
     // 9. Local State & Wrappers
     const boardRef = useRef<HTMLDivElement>(null);
-    const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+    const [editingNodeId, setEditingNodeId] = useState<number | null>(null);
     const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const [isSpacePressed, setIsSpacePressed] = useState(false);
 
@@ -225,41 +188,60 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole }) => {
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [settingsTargetBoard, setSettingsTargetBoard] = useState<Board | null>(null);
 
-    const handleDeleteNoteWrapper = (id: string) => {
+    const handleDeleteNoteWrapper = (id: number) => {
         if (connectingNodeId === id) setConnectingNodeId(null);
         dataDeleteNote(id);
     };
 
-    const addNote = (type: Note['type']) => {
+    const addNote = async (type: Note['type']) => {
         const centerX = window.innerWidth / 2;
         const centerY = window.innerHeight / 2;
         const worldPos = toWorld(centerX, centerY);
         const x = worldPos.x + (Math.random() * 100 - 50);
         const y = worldPos.y + (Math.random() * 100 - 50);
-        const id = `new-${Date.now()}`;
+
         let width = 256; let height = 160;
         if (type === 'photo') height = 280;
         else if (type === 'dossier') height = 224;
         else if (type === 'scrap') { width = 257; height = 50; }
         else if (type === 'marker') { width = 30; height = 30; }
+
         let content = 'New Clue';
         if (type === 'photo') content = 'New Evidence';
         else if (type === 'scrap') content = 'Scrap note...';
         else if (type === 'marker') { const existingMarkers = notes.filter(n => n.type === 'marker'); content = (existingMarkers.length + 1).toString(); }
-        // Ensure board_id is valid string or catch error if undefined
-        const boardIdToUse = activeBoardId || 'fallback-board';
 
-        const newNote: Note = {
-            id, type, content, x, y,
+        const boardIdToUse = activeBoardId;
+        if (!boardIdToUse) {
+            alert("Please select a case first.");
+            return;
+        }
+
+        // Prepare object for stats, but ID will be assigned by DB
+        // We need to INSERT to DB first to get ID.
+        // We do this optimistically or wait? Waiting ensures valid ID.
+
+        const partialNote = {
+            type, content, x, y,
             zIndex: maxZIndex + 1, rotation: (Math.random() * 10) - 5,
             fileId: type === 'photo' ? '/photo_1.png' : undefined, hasPin: false, scale: 1, width, height,
             board_id: boardIdToUse
         };
-        const nextNotes = [...notes, newNote];
-        setMaxZIndex(prev => prev + 1);
-        setNotes(nextNotes);
-        setSelectedIds(new Set([id]));
-        saveToCloud(nextNotes, connections);
+
+        try {
+            const { data, error } = await supabase.from('notes').insert([partialNote]).select().single();
+            if (error) throw error;
+            if (data) {
+                const newNote = data as Note;
+                const nextNotes = [...notes, newNote];
+                setMaxZIndex(prev => prev + 1);
+                setNotes(nextNotes);
+                setSelectedIds(new Set([newNote.id]));
+                // Realtime sub will likely fire too, but duplicate check exists there.
+            }
+        } catch (e) {
+            console.error("Failed to add note", e);
+        }
     };
 
     // Global Key Handling
@@ -365,7 +347,7 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole }) => {
         return () => window.removeEventListener('mouseup', globalUp);
     }, [handleMainMouseUp]);
 
-    const handleDoubleClick = (id: string) => {
+    const handleDoubleClick = (id: number) => {
         if (!isPinMode && !connectingNodeId) setEditingNodeId(id);
     };
 
@@ -376,12 +358,12 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole }) => {
         }
     };
 
-    const handleUpdateNodeSize = (id: string, width: number, height: number) => {
+    const handleUpdateNodeSize = (id: number, width: number, height: number) => {
         if (resizingId === id) return;
         setNotes(prev => prev.map(n => n.id === id ? { ...n, width, height } : n));
     };
 
-    const handleNodeMouseDownMsg = (e: React.MouseEvent, id: string) => {
+    const handleNodeMouseDownMsg = (e: React.MouseEvent, id: number) => {
         const wasPinClick = handleNodeClickForPin(e, id);
         if (wasPinClick) return;
         handleNodeMouseDown(e, id, isSpacePressed, isPinMode, connectingNodeId);
@@ -421,7 +403,6 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole }) => {
                 isOpen={isSettingsModalOpen}
                 board={settingsTargetBoard}
                 onClose={() => setIsSettingsModalOpen(false)}
-                onUpdateId={updateBoardId}
                 onDelete={deleteBoard}
             />
 
@@ -440,7 +421,7 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole }) => {
 
                         // Boards
                         boards={boards}
-                        activeBoardId={activeBoardId || ''} // Pass empty string if null to satisfy prop type if string required, but board list selection uses id comparison so null is fine for "none selected"
+                        activeBoardId={currentBoardId} // Now number | null matches Prop
                         onSelectBoard={setCurrentBoardId}
                         onAddBoard={addBoard}
                         onRenameBoard={renameBoard}

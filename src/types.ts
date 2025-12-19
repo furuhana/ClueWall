@@ -1,11 +1,12 @@
 export type NoteType = 'note' | 'photo' | 'scrap' | 'dossier' | 'evidence' | 'marker';
 
 export interface Note {
-  id: string;
+  id: number;
   type: NoteType;
   content: string;
   title?: string; // For Dossier (e.g., "Top Secret")
   subtitle?: string; // For Dossier (e.g., "Case File")
+  board_id?: number; // Optional reference to parent board
   fileId?: string; // URL for image or ID
   hasPin?: boolean; // Whether the note has a pin attached
   pinX?: number; // Relative X position of the pin (from left)
@@ -20,9 +21,10 @@ export interface Note {
 }
 
 export interface Connection {
-  id: string;
-  sourceId: string;
-  targetId: string;
+  id: number;
+  sourceId: number;
+  targetId: number;
+  board_id?: number;
   color: string;
 }
 
@@ -32,7 +34,8 @@ export interface DragOffset {
 }
 
 export interface Board {
-  id: string;
+  id: number;
   name: string;
   created_at?: string;
+  user_id?: string;
 }

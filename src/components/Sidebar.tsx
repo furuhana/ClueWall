@@ -14,11 +14,11 @@ interface SidebarProps {
 
     // Boards / Worlds
     boards: Board[];
-    activeBoardId: string | null;
-    onSelectBoard: (id: string) => void;
+    activeBoardId: number | null;
+    onSelectBoard: (id: number) => void;
     onAddBoard: () => void;
-    onRenameBoard: (id: string, newName: string) => void;
-    onDeleteBoard: (id: string) => void;
+    onRenameBoard: (id: number, newName: string) => void;
+    onDeleteBoard: (id: number) => void;
     onOpenSettings: (board: Board) => void;
 }
 
@@ -95,8 +95,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             <div
                                 key={board.id}
                                 className={`group flex items-center justify-between px-3 py-2 rounded text-sm cursor-pointer transition-all ${board.id === activeBoardId
-                                        ? 'bg-red-900/40 text-red-100 border-l-2 border-red-500'
-                                        : 'hover:bg-white/5 text-gray-400 border-l-2 border-transparent'
+                                    ? 'bg-red-900/40 text-red-100 border-l-2 border-red-500'
+                                    : 'hover:bg-white/5 text-gray-400 border-l-2 border-transparent'
                                     }`}
                                 onClick={() => onSelectBoard(board.id)}
                             >

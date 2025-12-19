@@ -7,7 +7,7 @@ export const useBoards = (
     onBoardSwitch?: () => void
 ) => {
     const [boards, setBoards] = useState<Board[]>([]);
-    const [currentBoardId, setCurrentBoardId] = useState<string | null>(null);
+    const [currentBoardId, setCurrentBoardId] = useState<number | null>(null);
 
     // Fetch Boards & Subscribe to Realtime Changes
     useEffect(() => {
@@ -22,14 +22,13 @@ export const useBoards = (
 
         // Initial Fetch
         const fetchBoards = async () => {
-            console.log("🔥 [useBoards] 开始获取画板列表 (Simple Mode)...");
+            console.log("🔥 [useBoards] 开始获取画板列表 (Numeric ID Mode)...");
 
-            // PURE SELECT - No sorting to prevent 400 errors if columns missing/indexed wrong
+            // PURE SELECT
             const { data, error } = await supabase.from('boards').select('*');
 
             if (error) {
-                console.error("🔥 [useBoards] 致命错误 (400?):", error);
-                // Don't alert immediately on refresh loops, but log heavily
+                console.error("🔥 [useBoards] 致命错误:", error);
                 return;
             }
 
@@ -42,9 +41,7 @@ export const useBoards = (
                 setBoards(data);
 
                 // 2. Immediate Active Switch
-                // Always pick the first valid ID from the array. 
-                // This eliminates 'loading-board' state.
-                const firstId = data[0].id; // e.g. "v1" or whatever is in DB
+                const firstId = data[0].id;
                 console.log(`🔥 [useBoards] 锁定活动画板: ${firstId}`);
                 setCurrentBoardId(firstId);
             } else {
@@ -55,10 +52,10 @@ export const useBoards = (
         };
 
         const createDefaultBoard = async () => {
-            const defaultId = Date.now().toString(); // Must be numeric string for bigint
+            if (!userId) return;
             const defaultBoard = {
-                id: defaultId,
-                name: '档案库 01'
+                name: '档案库 01',
+                user_id: userId
             };
 
             const { data, error } = await supabase.from('boards').insert([defaultBoard]).select();
@@ -87,24 +84,15 @@ export const useBoards = (
                             if (prev.some(b => b.id === newBoard.id)) return prev;
                             return [...prev, newBoard];
                         });
-                        // Optional: Switch to new board if explicitly added? 
-                        // Usually we only switch if user triggered it, but for realtime we just add to list.
-                        // UNLESS we have no board selected.
                         setCurrentBoardId(curr => curr || newBoard.id);
 
                     } else if (payload.eventType === 'UPDATE') {
                         const updatedBoard = payload.new as Board;
                         setBoards(prev => prev.map(b => b.id === updatedBoard.id ? updatedBoard : b));
-
-                        // Handle ID change if current board was modified
-                        const oldId = payload.old?.id; // Note: payload.old only has ID if identity replica
-                        if (oldId && updatedBoard.id !== oldId) {
-                            setCurrentBoardId(curr => (curr === oldId ? updatedBoard.id : curr));
-                        }
+                        // No ID change support needed for auto-increment keys
                     } else if (payload.eventType === 'DELETE') {
                         const deletedId = payload.old.id;
                         setBoards(prev => prev.filter(b => b.id !== deletedId));
-                        // If active board deleted
                         setCurrentBoardId(curr => (curr === deletedId ? null : curr));
                     }
                 }
@@ -115,14 +103,14 @@ export const useBoards = (
             isMounted = false;
             supabase.removeChannel(channel);
         };
-    }, []); // Run once on mount
+    }, [userId]); // Run when userId changes
 
     // Add Board
     const addBoard = useCallback(async () => {
-        const newId = Date.now().toString(); // Numeric string for bigint
+        if (!userId) return;
         const newBoardPayload = {
-            id: newId,
-            name: `New Case #${boards.length + 1}`
+            name: `New Case #${boards.length + 1}`,
+            user_id: userId
         };
 
         try {
@@ -131,30 +119,31 @@ export const useBoards = (
 
             if (data && data.length > 0) {
                 const created = data[0];
+                // Realtime will add to list, but we can optimistically add if we want.
+                // Or just wait for realtime. But for immediate switch:
                 setBoards(prev => [...prev, created]);
-                setCurrentBoardId(created.id); // Switch to it
+                setCurrentBoardId(created.id);
                 if (onBoardSwitch) onBoardSwitch();
             }
         } catch (e: any) {
             console.error("Add failed:", e);
             alert(e.message);
         }
-    }, [boards, onBoardSwitch]);
+    }, [boards, onBoardSwitch, userId]);
 
     // Rename Board
-    const renameBoard = useCallback(async (id: string, newName: string) => {
+    const renameBoard = useCallback(async (id: number, newName: string) => {
         setBoards(prev => prev.map(b => b.id === id ? { ...b, name: newName } : b));
         await supabase.from('boards').update({ name: newName }).eq('id', id);
     }, []);
 
     // Delete Board
-    const deleteBoard = useCallback(async (id: string) => {
+    const deleteBoard = useCallback(async (id: number) => {
         if (!window.confirm("Permanently delete this case?")) return;
         try {
             await supabase.from('notes').delete().eq('board_id', id);
             await supabase.from('connections').delete().eq('board_id', id);
             await supabase.from('boards').delete().eq('id', id);
-            // State update handled by Realtime usually, but optimistic is faster
             setBoards(prev => {
                 const next = prev.filter(b => b.id !== id);
                 if (currentBoardId === id) {
@@ -167,22 +156,7 @@ export const useBoards = (
         }
     }, [currentBoardId]);
 
-    // Update Board ID
-    const updateBoardId = useCallback(async (oldId: string, newId: string): Promise<boolean> => {
-        if (!newId || newId === oldId) return false;
-        try {
-            const { error } = await supabase.from('boards').update({ id: newId }).eq('id', oldId);
-            if (error) throw error;
-
-            setBoards(prev => prev.map(b => b.id === oldId ? { ...b, id: newId } : b));
-            if (currentBoardId === oldId) setCurrentBoardId(newId);
-            return true;
-        } catch (e: any) {
-            console.error("ID Update Error:", e);
-            alert("ID Modification Error: " + e.message);
-            return false;
-        }
-    }, [currentBoardId]);
+    // Update ID removed as we use auto-increment
 
     return {
         boards,
@@ -190,7 +164,6 @@ export const useBoards = (
         setCurrentBoardId,
         addBoard,
         renameBoard,
-        deleteBoard,
-        updateBoardId
+        deleteBoard
     };
 };

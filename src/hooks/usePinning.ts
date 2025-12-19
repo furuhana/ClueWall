@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { Note, Connection } from '../types';
 import { getNoteDimensions } from '../utils';
 
-interface PinDragData { noteId: string; startX: number; startY: number; initialPinX: number; initialPinY: number; rotation: number; width: number; height: number; }
+interface PinDragData { noteId: number; startX: number; startY: number; initialPinX: number; initialPinY: number; rotation: number; width: number; height: number; }
 
 export const usePinning = (
     notes: Note[],
@@ -13,12 +13,12 @@ export const usePinning = (
     view: { zoom: number },
     toWorld: (x: number, y: number) => { x: number, y: number }
 ) => {
-    const [connectingNodeId, setConnectingNodeId] = useState<string | null>(null);
+    const [connectingNodeId, setConnectingNodeId] = useState<number | null>(null);
     const [pinDragData, setPinDragData] = useState<PinDragData | null>(null);
     const [isPinMode, setIsPinMode] = useState<boolean>(false);
     const isPinDragRef = useRef(false);
 
-    const handlePinMouseDown = useCallback((e: React.MouseEvent, id: string) => {
+    const handlePinMouseDown = useCallback((e: React.MouseEvent, id: number) => {
         e.stopPropagation();
         e.preventDefault();
         const note = notes.find(n => n.id === id);
@@ -54,7 +54,7 @@ export const usePinning = (
         setPinDragData(null);
     }, [pinDragData, notes, saveToCloud]);
 
-    const handlePinClick = useCallback((e: React.MouseEvent, id: string) => {
+    const handlePinClick = useCallback((e: React.MouseEvent, id: number) => {
         e.stopPropagation();
         if (isPinDragRef.current) { isPinDragRef.current = false; return; }
         if (isPinMode) { setIsPinMode(false); setConnectingNodeId(id); return; }
@@ -65,7 +65,8 @@ export const usePinning = (
                 const nextConns = [...connections];
                 const exists = nextConns.some(c => (c.sourceId === connectingNodeId && c.targetId === id) || (c.sourceId === id && c.targetId === connectingNodeId));
                 if (!exists) {
-                    const newConn = { id: `c-${Date.now()}-${Math.random()}`, sourceId: connectingNodeId, targetId: id, color: '#D43939' };
+                    // Connections need IDs too. Temp ID until we fully async it.
+                    const newConn = { id: -Date.now(), sourceId: connectingNodeId, targetId: id, color: '#D43939' };
                     const finalConns = [...nextConns, newConn];
                     setConnections(finalConns);
                     saveToCloud(notes, finalConns);
@@ -75,10 +76,10 @@ export const usePinning = (
         }
     }, [isPinDragRef, isPinMode, connectingNodeId, connections, saveToCloud, notes, setConnections]);
 
-    const handleStartPinFromCorner = useCallback((id: string) => setIsPinMode(true), []);
+    const handleStartPinFromCorner = useCallback((id: number) => setIsPinMode(true), []);
 
     // Handling clicking on a node to create a pin
-    const handleNodeClickForPin = useCallback((e: React.MouseEvent, id: string) => {
+    const handleNodeClickForPin = useCallback((e: React.MouseEvent, id: number) => {
         if (!isPinMode && !connectingNodeId) return false;
 
         const targetNote = notes.find(n => n.id === id); if (!targetNote) return false;
@@ -107,7 +108,7 @@ export const usePinning = (
             const nextNotes = notes.map((n) => n.id === id ? updatePin(n) : n);
             let nextConns = connections;
             const exists = connections.some(c => (c.sourceId === connectingNodeId && c.targetId === id) || (c.sourceId === id && c.targetId === connectingNodeId));
-            if (!exists) { nextConns = [...connections, { id: `c-${Date.now()}`, sourceId: connectingNodeId, targetId: id, color: '#D43939' }]; }
+            if (!exists) { nextConns = [...connections, { id: -Date.now(), sourceId: connectingNodeId, targetId: id, color: '#D43939' }]; }
             setNotes(nextNotes);
             setConnections(nextConns);
             setConnectingNodeId(null);
