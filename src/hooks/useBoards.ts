@@ -55,7 +55,7 @@ export const useBoards = (
         };
 
         const createDefaultBoard = async () => {
-            const defaultId = `case-${Date.now()}`;
+            const defaultId = Date.now().toString(); // Must be numeric string for bigint
             const defaultBoard = {
                 id: defaultId,
                 name: '档案库 01'
@@ -119,7 +119,7 @@ export const useBoards = (
 
     // Add Board
     const addBoard = useCallback(async () => {
-        const newId = `case-${Date.now()}`;
+        const newId = Date.now().toString(); // Numeric string for bigint
         const newBoardPayload = {
             id: newId,
             name: `New Case #${boards.length + 1}`
