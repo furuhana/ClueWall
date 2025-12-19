@@ -23,12 +23,13 @@ const App: React.FC = () => {
     // 1. Interaction Ref for Conflict Resolution
     const interactionRef = useRef<{ draggingId: string | null; resizingId: string | null; rotatingId: string | null }>({ draggingId: null, resizingId: null, rotatingId: null });
 
-    // 2. Board Data
+    // 2. Board Data (Board Isolation)
+    const [activeBoardId] = useState('case-2023-x'); // Default Board ID
     const {
         notes, setNotes, connections, setConnections, isLoading,
         maxZIndex, setMaxZIndex, saveToCloud,
         handleDeleteNote: dataDeleteNote, handleDeleteConnection, clearBoard, updateNote
-    } = useBoardData(interactionRef);
+    } = useBoardData(activeBoardId, interactionRef);
 
     // 3. Canvas View
     const {

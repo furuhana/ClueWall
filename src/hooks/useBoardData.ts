@@ -4,6 +4,7 @@ import { Note, Connection } from '../types';
 import { deleteImageFromDrive } from '../api';
 
 export const useBoardData = (
+  activeBoardId: string,
   interactionRef: React.MutableRefObject<{ draggingId: string | null; resizingId: string | null; rotatingId: string | null }>
 ) => {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -14,30 +15,38 @@ export const useBoardData = (
   // 实时订阅
   useEffect(() => {
     const fetchInitialData = async () => {
-      const { data: notesData } = await supabase.from('notes').select('*');
-      const { data: connsData } = await supabase.from('connections').select('*');
+      // 1. Query Filter
+      const { data: notesData } = await supabase.from('notes').select('*').eq('board_id', activeBoardId);
+      const { data: connsData } = await supabase.from('connections').select('*').eq('board_id', activeBoardId);
+
       if (notesData) {
         const uniqueNotes = Array.from(new Map(notesData.map((item: any) => [item.id, item])).values());
         setNotes(uniqueNotes as any);
         const maxZ = notesData.reduce((max: number, n: any) => Math.max(max, n.zIndex || 0), 10);
         setMaxZIndex(maxZ);
+      } else {
+        setNotes([]);
       }
+
       if (connsData) {
         const uniqueConns = Array.from(new Map(connsData.map((item: any) => [item.id, item])).values());
         setConnections(uniqueConns as any);
+      } else {
+        setConnections([]);
       }
       setIsLoading(false);
     };
     fetchInitialData();
 
-    const channel = supabase.channel('detective-wall-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, (payload) => {
+    // 2. Subscription Filter
+    const channel = supabase.channel(`detective-wall-changes-${activeBoardId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `board_id=eq.${activeBoardId}` }, (payload) => {
         if (payload.eventType === 'INSERT') {
           setNotes(prev => prev.some(n => n.id === payload.new.id) ? prev : [...prev, payload.new as Note]);
         } else if (payload.eventType === 'UPDATE') {
           const newNote = payload.new as Note;
           setNotes(prev => prev.map(n => {
-            // Conflict Resolution: Do not update if user is interacting with this note
+            // Conflict Resolution
             const current = interactionRef.current;
             if (n.id === newNote.id && (current.draggingId === n.id || current.resizingId === n.id || current.rotatingId === n.id)) {
               return n;
@@ -46,7 +55,7 @@ export const useBoardData = (
           }));
         } else if (payload.eventType === 'DELETE') setNotes(prev => prev.filter(n => n.id !== payload.old.id));
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'connections' }, (payload) => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'connections', filter: `board_id=eq.${activeBoardId}` }, (payload) => {
         if (payload.eventType === 'INSERT') {
           setConnections(prev => prev.some(c => c.id === payload.new.id) ? prev : [...prev, payload.new as Connection]);
         }
@@ -55,14 +64,23 @@ export const useBoardData = (
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [interactionRef]);
+  }, [activeBoardId, interactionRef]);
 
+  // 3. Save Injection
   const saveToCloud = useCallback(async (changedNotes: Note[], changedConns: Connection[]) => {
-    if (changedNotes.length > 0) await supabase.from('notes').upsert(changedNotes);
-    if (changedConns.length > 0) await supabase.from('connections').upsert(changedConns);
-  }, []);
+    if (changedNotes.length > 0) {
+      const notesToSave = changedNotes.map(n => ({ ...n, board_id: activeBoardId }));
+      await supabase.from('notes').upsert(notesToSave);
+    }
+    if (changedConns.length > 0) {
+      const connsToSave = changedConns.map(c => ({ ...c, board_id: activeBoardId }));
+      await supabase.from('connections').upsert(connsToSave);
+    }
+  }, [activeBoardId]);
 
   const deleteFromCloud = useCallback(async (noteId?: string, connId?: string) => {
+    // Note: Deletion usually doesn't require board_id if ID is unique, but RLS might require it. 
+    // User asked NOT to modify deletion logic, so keeping as is (deleting by ID).
     if (noteId) await supabase.from('notes').delete().eq('id', noteId);
     if (connId) await supabase.from('connections').delete().eq('id', connId);
   }, []);
@@ -92,10 +110,11 @@ export const useBoardData = (
     if (window.confirm("Burn all evidence?")) {
       setNotes([]);
       setConnections([]);
-      await supabase.from('notes').delete().neq('id', '0');
-      await supabase.from('connections').delete().neq('id', '0');
+      // Ensure we only clear CURRENT board
+      await supabase.from('notes').delete().eq('board_id', activeBoardId);
+      await supabase.from('connections').delete().eq('board_id', activeBoardId);
     }
-  }, []);
+  }, [activeBoardId]); // Added dependency
 
   const updateNote = useCallback((updatedNote: Note) => {
     setNotes(prev => prev.map(n => n.id === updatedNote.id ? updatedNote : n));
