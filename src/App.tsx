@@ -26,7 +26,7 @@ interface SettingsModalProps {
     isOpen: boolean;
     board: Board | null;
     onClose: () => void;
-    onUpdateId: (oldId: string, newId: string) => Promise<void>;
+    onUpdateId: (oldId: string, newId: string) => Promise<boolean | void>;
     onDelete: (id: string) => Promise<void>;
 }
 
@@ -88,9 +88,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, board, onClose, o
                         <button
                             onClick={async () => {
                                 if (tempId !== board.id) {
-                                    await onUpdateId(board.id, tempId);
+                                    // Use boolean return logic to decide whether to close
+                                    const success = await onUpdateId(board.id, tempId);
+                                    if (success) onClose();
+                                } else {
+                                    onClose();
                                 }
-                                onClose();
                             }}
                             className="flex-1 bg-blue-900/50 hover:bg-blue-800 text-blue-100 py-2 rounded text-xs font-bold uppercase tracking-wider transition-colors"
                         >
