@@ -51,11 +51,13 @@ const App: React.FC = () => {
   const [ghostNote, setGhostNote] = useState<{ x: number; y: number; typeIndex: number } | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const dragCounter = useRef(0);
-  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   
+  // 🟢 音乐状态
+  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
   const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);
   const lastDragPosRef = useRef<{ x: number; y: number } | null>(null); 
-  const audioRef = useRef<HTMLAudioElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
 
@@ -65,6 +67,40 @@ const App: React.FC = () => {
   }, [draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, activeBoardId, isUIHidden, ghostNote, connectingNodeId, isPinMode]);
   
   const toWorld = useCallback((screenX: number, screenY: number) => ({ x: (screenX - view.x) / view.zoom, y: (screenY - view.y) / view.zoom }), [view]);
+
+  // --- 🟢 还原：音乐控制逻辑 ---
+  const toggleMusic = () => {
+    if (!audioRef.current) return;
+    if (isMusicPlaying) {
+      audioRef.current.pause();
+      setIsMusicPlaying(false);
+    } else {
+      audioRef.current.play().then(() => setIsMusicPlaying(true)).catch(err => console.log("播放失败:", err));
+    }
+  };
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = 0.2; // 设置适中音量
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.then(() => {
+          setIsMusicPlaying(true);
+        }).catch(() => {
+          // 浏览器阻止自动播放，添加一次性点击监听
+          const enableAudio = () => {
+            if (audioRef.current) {
+              audioRef.current.play().then(() => setIsMusicPlaying(true));
+              window.removeEventListener('click', enableAudio);
+              window.removeEventListener('keydown', enableAudio);
+            }
+          };
+          window.addEventListener('click', enableAudio);
+          window.addEventListener('keydown', enableAudio);
+        });
+      }
+    }
+  }, []);
 
   // --- 交互核心逻辑 ---
   const handleZoomIn = () => setView(v => ({ ...v, zoom: Math.min(v.zoom + 0.1, 3.0) }));
@@ -349,9 +385,10 @@ const App: React.FC = () => {
          onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}
          onDoubleClick={(e) => { if(e.target === boardRef.current) setGhostNote({ ...toWorld(e.clientX, e.clientY), typeIndex: 0 }); }}>
       
+      {/* 🟢 还原：背景音频标签 */}
       <audio ref={audioRef} src="/home_bgm.mp3" loop />
 
-      {/* 🟢 左上角 UI：工具集 + 画板列表（已恢复） */}
+      {/* 左上角 UI：工具集 + 画板列表 */}
       {!isUIHidden && (
         <div className="absolute top-4 left-4 z-[9999] flex flex-col gap-3 w-64" onMouseDown={e => e.stopPropagation()}>
           <div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-xl border border-white/10">
@@ -370,7 +407,6 @@ const App: React.FC = () => {
             </button>
           </div>
 
-          {/* 🟢 恢复的画板列表 */}
           <div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-xl border border-white/10 flex flex-col gap-2">
             <div className="flex justify-between items-center border-b border-white/10 pb-2">
               <span className="text-[10px] font-mono tracking-widest text-gray-400 uppercase font-bold">Archives</span>
@@ -398,19 +434,24 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* 右上角控制 */}
+      {/* 🟢 右上角控制：包含音乐切换按钮 */}
       {!isUIHidden && (
         <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2">
             <div className="bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-xl">
               <button onClick={handleZoomIn} className="p-2 border-b border-white/10 hover:bg-white/10 transition-colors"><Plus size={20}/></button>
               <div className="text-[10px] font-mono py-1">{Math.round(view.zoom * 100)}%</div>
               <button onClick={handleZoomOut} className="p-2 border-b border-white/10 hover:bg-white/10 transition-colors"><Minus size={20}/></button>
+              {/* 🟢 还原：音乐控制按钮 */}
+              <button onClick={toggleMusic} className="p-2 hover:bg-white/10 transition-colors">
+                {isMusicPlaying ? <Volume2 size={20} /> : <VolumeX size={20} />}
+              </button>
             </div>
             <button onClick={handleResetView} className="bg-black/80 p-2 text-white rounded-lg border border-white/10 shadow-xl hover:bg-white/10 transition-colors"><LocateFixed size={20}/></button>
             <button onClick={() => { setIsUIHidden(true); setShowHiddenModeToast(true); }} className="bg-black/80 p-2 text-white rounded-lg border border-white/10 shadow-xl hover:bg-white/10 transition-colors"><Maximize size={20}/></button>
         </div>
       )}
       
+      {/* 画布核心 */}
       <div className="absolute top-0 left-0 w-0 h-0" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, transformOrigin: '0 0' }}>
           {notes.map((note) => (
             <DetectiveNode key={note.id} note={note} onMouseDown={handleNodeMouseDown} isSelected={selectedIds.has(note.id)} 
