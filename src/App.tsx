@@ -99,10 +99,13 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
 
     // 2. Boards Management
     const {
-        boards, currentBoardId, setCurrentBoardId,
-        addBoard, renameBoard, deleteBoard // updateBoardId removed
-    } = useBoards(session.user.id);
-
+        boards,
+        currentBoardId,
+        setCurrentBoardId,
+        addBoard,
+        renameBoard,
+        deleteBoard
+    } = useBoards(session?.user?.id || '', userRole);
     // 3. Board Data (Board Isolation)
     // IMPORTANT: Ensure we don't pass 'loading-board' to DB hooks if schema implies bigint or checks exist.
     // However, if currentBoardId is null, useBoardData usually handles it.
@@ -412,15 +415,12 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
                     onDoubleClick={(e) => e.stopPropagation()}
                 >
                     <Sidebar
-                        // Tools
                         onAddNote={addNote}
                         onClearBoard={clearBoard}
                         isPinMode={isPinMode}
                         onTogglePinMode={() => setIsPinMode(!isPinMode)}
-
-                        // Boards
                         boards={boards}
-                        activeBoardId={currentBoardId} // Now number | null matches Prop
+                        activeBoardId={currentBoardId}
                         onSelectBoard={setCurrentBoardId}
                         onAddBoard={addBoard}
                         onRenameBoard={renameBoard}
@@ -430,6 +430,8 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
                             setIsSettingsModalOpen(true);
                         }}
                         onSignOut={onSignOut}
+                        userRole={userRole}
+                        currentUserId={session.user.id}
                     />
                 </div>
             )}
@@ -528,6 +530,7 @@ const App: React.FC = () => {
     const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
     const [isCheckingProfile, setIsCheckingProfile] = useState(false);
+    const [loginMessage, setLoginMessage] = useState<string | null>(null);
 
     // Strict Profile Verification Logic
     const verifyProfileStrict = async (userId: string) => {
@@ -549,7 +552,7 @@ const App: React.FC = () => {
             if (!profile) {
                 // ANOMALY DETECTED: User exists in Auth but not in Profiles.
                 console.error("⛔ Security Alert: User has no profile record.");
-                alert("账号未激活或未登记，请联系管理员。");
+                setLoginMessage("AGENT STATUS: UNAUTHORIZED. 请联系管理员激活档案。");
                 await supabase.auth.signOut();
                 setSession(null);
                 return;
@@ -582,6 +585,7 @@ const App: React.FC = () => {
         setSession(null);
         setUserRole(null);
         setIsCheckingProfile(false);
+        setLoginMessage(null);
     };
 
     useEffect(() => {
@@ -617,7 +621,7 @@ const App: React.FC = () => {
     }
 
     if (!session) {
-        return <Login />;
+        return <Login loginMessage={loginMessage} />;
     }
 
     if (isCheckingProfile) {

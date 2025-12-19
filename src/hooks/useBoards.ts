@@ -3,7 +3,8 @@ import { supabase } from '../supabaseClient';
 import { Board } from '../types';
 
 export const useBoards = (
-    userId?: string,
+    userId: string,
+    userRole: string | null,
     onBoardSwitch?: () => void
 ) => {
     const [boards, setBoards] = useState<Board[]>([]);
@@ -20,37 +21,6 @@ export const useBoards = (
             return;
         }
 
-        // Initial Fetch
-        const fetchBoards = async () => {
-            console.log("🔥 [useBoards] 开始获取画板列表 (Numeric ID Mode)...");
-
-            // PURE SELECT
-            const { data, error } = await supabase.from('boards').select('*');
-
-            if (error) {
-                console.error("🔥 [useBoards] 致命错误:", error);
-                return;
-            }
-
-            if (!isMounted) return;
-
-            console.log("🔥 [useBoards] 数据库返回:", data);
-
-            if (data && data.length > 0) {
-                // 1. Update List
-                setBoards(data);
-
-                // 2. Immediate Active Switch
-                const firstId = data[0].id;
-                console.log(`🔥 [useBoards] 锁定活动画板: ${firstId}`);
-                setCurrentBoardId(firstId);
-            } else {
-                // Empty DB
-                console.log("🔥 [useBoards] 列表为空，初始化默认画板...");
-                createDefaultBoard();
-            }
-        };
-
         const createDefaultBoard = async () => {
             if (!userId) return;
             const defaultBoard = {
@@ -66,6 +36,54 @@ export const useBoards = (
                 setCurrentBoardId(data[0].id);
             } else if (error) {
                 console.error("Failed to create default board:", error);
+            }
+        };
+
+        // Initial Fetch
+        const fetchBoards = async () => {
+            if (!userId) {
+                return;
+            }
+
+            console.log("🔥 [useBoards] 开始获取画板列表 (Numeric ID Mode)...");
+
+            try {
+                let query = supabase
+                    .from('boards')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                // If NOT admin, filter by user_id. Admins see all.
+                if (userRole !== 'admin') {
+                    query = query.eq('user_id', userId);
+                }
+
+                const { data, error } = await query;
+
+                if (error) throw error;
+                if (!isMounted) return;
+
+                console.log("🔥 [useBoards] 数据库返回:", data);
+
+                if (data && data.length > 0) {
+                    setBoards(data);
+
+                    // If no active board, set the most recent one
+                    // We use the functional update pattern or just check current state safely?
+                    // Inside useEffect, accessing currentBoardId directly might be stale if dep missing, 
+                    // but we only run this on userId/role change.
+                    // Let's just default to first one if we don't have one selected or if selected one is invalid.
+                    setCurrentBoardId(prev => {
+                        if (prev && data.find(b => b.id === prev)) return prev;
+                        return data[0].id;
+                    });
+                } else {
+                    // Empty DB
+                    console.log("🔥 [useBoards] 列表为空，初始化默认画板...");
+                    createDefaultBoard();
+                }
+            } catch (error: any) {
+                console.error('Error fetching boards:', error);
             }
         };
 
@@ -89,7 +107,6 @@ export const useBoards = (
                     } else if (payload.eventType === 'UPDATE') {
                         const updatedBoard = payload.new as Board;
                         setBoards(prev => prev.map(b => b.id === updatedBoard.id ? updatedBoard : b));
-                        // No ID change support needed for auto-increment keys
                     } else if (payload.eventType === 'DELETE') {
                         const deletedId = payload.old.id;
                         setBoards(prev => prev.filter(b => b.id !== deletedId));
@@ -103,7 +120,7 @@ export const useBoards = (
             isMounted = false;
             supabase.removeChannel(channel);
         };
-    }, [userId]); // Run when userId changes
+    }, [userId, userRole]); // Run when userId or role changes
 
     // Add Board
     const addBoard = useCallback(async () => {
@@ -119,8 +136,6 @@ export const useBoards = (
 
             if (data && data.length > 0) {
                 const created = data[0];
-                // Realtime will add to list, but we can optimistically add if we want.
-                // Or just wait for realtime. But for immediate switch:
                 setBoards(prev => [...prev, created]);
                 setCurrentBoardId(created.id);
                 if (onBoardSwitch) onBoardSwitch();
@@ -155,8 +170,6 @@ export const useBoards = (
             console.error(error);
         }
     }, [currentBoardId]);
-
-    // Update ID removed as we use auto-increment
 
     return {
         boards,

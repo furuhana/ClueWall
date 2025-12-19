@@ -21,12 +21,14 @@ interface SidebarProps {
     onDeleteBoard: (id: number) => void;
     onOpenSettings: (board: Board) => void;
     onSignOut: () => void;
+    userRole: string | null;
+    currentUserId: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
     onAddNote, onClearBoard, isPinMode, onTogglePinMode,
     boards, activeBoardId, onSelectBoard, onAddBoard, onRenameBoard, onDeleteBoard,
-    onOpenSettings, onSignOut
+    onOpenSettings, onSignOut, userRole, currentUserId
 }) => {
     const [isExpanded, setIsExpanded] = useState(true);
 
