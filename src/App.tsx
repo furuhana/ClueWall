@@ -5,7 +5,7 @@ import ConnectionLayer from './components/ConnectionLayer';
 import EditModal from './components/EditModal';
 import {
     Trash2, MapPin, UploadCloud, Plus, Minus, Volume2, VolumeX, LocateFixed, Maximize, Loader2, MousePointer2,
-    StickyNote, Image as ImageIcon, Folder, FileText, ChevronRight, Archive, PlusSquare
+    StickyNote, Image as ImageIcon, Folder, FileText, ChevronRight, Archive, PlusSquare, Shield, Edit3
 } from 'lucide-react';
 
 // Hooks
@@ -310,11 +310,51 @@ const App: React.FC = () => {
                                 {boards.map(board => (
                                     <div
                                         key={board.id}
-                                        className={`flex items-center justify-between px-2 py-1 rounded text-sm cursor-pointer ${board.id === activeBoardId ? 'bg-red-900/40 text-red-200' : 'hover:bg-white/5 text-gray-400'}`}
+                                        className={`group flex items-center justify-between px-2 py-1 rounded text-sm cursor-pointer ${board.id === activeBoardId ? 'bg-red-900/40 text-red-200' : 'hover:bg-white/5 text-gray-400'}`}
                                         onClick={() => setCurrentBoardId(board.id)}
                                     >
-                                        <span>{board.name}</span>
-                                        {board.id === activeBoardId && <span className="text-[10px] uppercase font-bold text-red-500">Active</span>}
+                                        <div className="flex items-center gap-2 overflow-hidden">
+                                            <span>{board.name}</span>
+                                            {board.id === activeBoardId && <span className="text-[10px] uppercase font-bold text-red-500 flex-shrink-0">Active</span>}
+                                        </div>
+
+                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            {/* Permission (Placeholder) */}
+                                            <button
+                                                className="p-1 hover:text-white text-gray-600 cursor-not-allowed"
+                                                onClick={(e) => { e.stopPropagation(); }}
+                                                title="Permissions (Coming Soon)"
+                                            >
+                                                <Shield size={12} />
+                                            </button>
+
+                                            {/* Rename */}
+                                            <button
+                                                className="p-1 hover:text-blue-400 text-gray-500"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    const newName = prompt("Rename Case:", board.name);
+                                                    if (newName) renameBoard(board.id, newName);
+                                                }}
+                                                title="Rename"
+                                            >
+                                                <Edit3 size={12} />
+                                            </button>
+
+                                            {/* Delete */}
+                                            {boards.length > 1 && (
+                                                <button
+                                                    className="p-1 hover:text-red-500 text-gray-500"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        deleteBoard(board.id);
+                                                    }}
+                                                    title="Delete Case"
+                                                >
+                                                    <Trash2 size={12} />
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                 ))}
                                 <button onClick={addBoard} className="w-full mt-2 flex items-center justify-center gap-2 py-1 border border-dashed border-gray-600 rounded text-xs text-gray-400 hover:text-white hover:border-gray-400">
