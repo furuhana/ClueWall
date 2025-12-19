@@ -6,7 +6,7 @@ export const useAudio = () => {
 
     useEffect(() => {
         if (audioRef.current) {
-            audioRef.current.volume = 0.1; // 10% volume
+            audioRef.current.volume = 0.2; // 20% volume
             const playPromise = audioRef.current.play();
             if (playPromise !== undefined) {
                 playPromise.then(() => setIsMusicPlaying(true))
