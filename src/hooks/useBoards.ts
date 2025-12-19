@@ -18,11 +18,15 @@ export const useBoards = (
                 if (!currentBoardId) setCurrentBoardId(data[0].id);
             } else {
                 // If no boards, create default
-                const defaultBoard = { name: 'Main Case' };
-                // Using Supabase to generate ID
-                // Note: If RLS prevents INSERT, this will fail.
+                const defaultId = `board-${Date.now()}`;
+                const defaultBoard = {
+                    id: defaultId,
+                    name: 'Main Case'
+                };
+
                 try {
-                    const { data: newBoard, error: insertError } = await supabase.from('boards').insert(defaultBoard).select();
+                    const { data: newBoard, error: insertError } = await supabase.from('boards').insert([defaultBoard]).select();
+
                     if (newBoard && newBoard.length > 0) {
                         setBoards(newBoard);
                         setCurrentBoardId(newBoard[0].id);
@@ -40,14 +44,17 @@ export const useBoards = (
     }, []);
 
     const addBoard = useCallback(async () => {
+        const newId = `board-${Date.now()}`;
         const newBoardPayload = {
+            id: newId,
             name: `New Case #${boards.length + 1}`
         };
 
         console.log("Attempting to add board:", newBoardPayload);
 
         try {
-            const { data, error } = await supabase.from('boards').insert(newBoardPayload).select();
+            // Note: passing array to insert as recommended
+            const { data, error } = await supabase.from('boards').insert([newBoardPayload]).select();
 
             if (error) {
                 console.error("Supabase INSERT error:", error);
@@ -55,23 +62,22 @@ export const useBoards = (
                 return;
             }
 
-            if (data && data.length > 0) {
-                const newBoard = data[0];
-                console.log("Board created successfully:", newBoard);
+            // Fallback: If data is returned, use it. If not (but no error), use local payload.
+            const createdBoard = (data && data.length > 0) ? data[0] : newBoardPayload;
 
-                // 1. Immediate State Refresh
-                setBoards(prev => {
-                    const next = [...prev, newBoard];
-                    return next;
-                });
+            console.log("Board created successfully:", createdBoard);
 
-                // 2. Force Switch
-                setCurrentBoardId(newBoard.id);
+            // 1. Immediate State Refresh
+            setBoards(prev => {
+                const next = [...prev, createdBoard];
+                return next;
+            });
 
-                if (onBoardSwitch) onBoardSwitch();
-            } else {
-                console.warn("No data returned from INSERT");
-            }
+            // 2. Force Switch
+            setCurrentBoardId(createdBoard.id);
+
+            if (onBoardSwitch) onBoardSwitch();
+
         } catch (e: any) {
             console.error("Unexpected error in addBoard:", e);
             alert("Unexpected Error: " + e.message);

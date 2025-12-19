@@ -28,7 +28,6 @@ const App: React.FC = () => {
     const { boards, currentBoardId, setCurrentBoardId, addBoard, renameBoard, deleteBoard } = useBoards();
 
     // 3. Board Data (Board Isolation)
-    // Use 'default' as fallback to avoid queries before boards load
     const activeBoardId = currentBoardId || 'loading-board';
     const {
         notes, setNotes, connections, setConnections, isLoading,
@@ -453,4 +452,5 @@ const App: React.FC = () => {
         </div>
     );
 };
+
 export default App;
