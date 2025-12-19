@@ -1,4 +1,7 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
+import { supabase } from './supabaseClient';
+import { Session } from '@supabase/supabase-js';
+import Login from './pages/Login/Login';
 import { Note, Board } from './types';
 import DetectiveNode from './components/DetectiveNode';
 import ConnectionLayer from './components/ConnectionLayer';
@@ -121,61 +124,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, board, onClose, o
     );
 };
 
-import { supabase } from './supabaseClient';
-import { Session } from '@supabase/supabase-js';
-import Login from './pages/Login/Login';
+// --- Internal App Component (Authenticated Game Logic) ---
 
-// ... (previous imports)
+interface ClueWallAppProps {
+    session: Session;
+    userRole: string | null;
+}
 
-const App: React.FC = () => {
-    // 0. Auth & Session State
-    const [session, setSession] = useState<Session | null>(null);
-    const [userRole, setUserRole] = useState<string | null>(null);
-    const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-
-    useEffect(() => {
-        // Initial Session Check
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            if (session) fetchUserRole(session.user.id);
-            setIsLoadingAuth(false);
-        });
-
-        // Auth State Listener
-        const {
-            data: { subscription },
-        } = supabase.auth.onAuthStateChange((_event, session) => {
-            setSession(session);
-            if (session) {
-                fetchUserRole(session.user.id);
-            } else {
-                setUserRole(null);
-            }
-            setIsLoadingAuth(false);
-        });
-
-        return () => subscription.unsubscribe();
-    }, []);
-
-    const fetchUserRole = async (userId: string) => {
-        try {
-            const { data, error } = await supabase
-                .from('profiles')
-                .select('role')
-                .eq('id', userId)
-                .single();
-
-            if (data) {
-                setUserRole(data.role);
-                if (data.role === 'admin') {
-                    console.log("🔥 超级管理员已登录");
-                }
-            }
-        } catch (e) {
-            console.error("Failed to fetch role", e);
-        }
-    };
-
+const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole }) => {
     // 1. Interaction Ref for Conflict Resolution
     const interactionRef = useRef<{ draggingId: string | null; resizingId: string | null; rotatingId: string | null }>({ draggingId: null, resizingId: null, rotatingId: null });
 
@@ -183,10 +139,13 @@ const App: React.FC = () => {
     const {
         boards, currentBoardId, setCurrentBoardId,
         addBoard, renameBoard, deleteBoard, updateBoardId
-    } = useBoards();
+    } = useBoards(session.user.id);
 
     // 3. Board Data (Board Isolation)
-    const activeBoardId = currentBoardId || 'loading-board';
+    // IMPORTANT: Ensure we don't pass 'loading-board' to DB hooks if schema implies bigint or checks exist.
+    // However, if currentBoardId is null, useBoardData usually handles it.
+    // We'll trust useBoardData to handle null, or pass a dummy UUID if strict.
+    const activeBoardId = currentBoardId;
 
     // Diagnostic: Verify global board ID update
     useEffect(() => {
@@ -197,7 +156,7 @@ const App: React.FC = () => {
         notes, setNotes, connections, setConnections, isLoading,
         maxZIndex, setMaxZIndex, saveToCloud,
         handleDeleteNote: dataDeleteNote, handleDeleteConnection, clearBoard, updateNote
-    } = useBoardData(activeBoardId, interactionRef);
+    } = useBoardData(activeBoardId || undefined, interactionRef); // Pass undefined if null to be safe
 
     // 4. Canvas View
     const {
@@ -287,10 +246,14 @@ const App: React.FC = () => {
         if (type === 'photo') content = 'New Evidence';
         else if (type === 'scrap') content = 'Scrap note...';
         else if (type === 'marker') { const existingMarkers = notes.filter(n => n.type === 'marker'); content = (existingMarkers.length + 1).toString(); }
+        // Ensure board_id is valid string or catch error if undefined
+        const boardIdToUse = activeBoardId || 'fallback-board';
+
         const newNote: Note = {
             id, type, content, x, y,
             zIndex: maxZIndex + 1, rotation: (Math.random() * 10) - 5,
-            fileId: type === 'photo' ? '/photo_1.png' : undefined, hasPin: false, scale: 1, width, height, board_id: activeBoardId
+            fileId: type === 'photo' ? '/photo_1.png' : undefined, hasPin: false, scale: 1, width, height,
+            board_id: boardIdToUse
         };
         const nextNotes = [...notes, newNote];
         setMaxZIndex(prev => prev + 1);
@@ -454,7 +417,6 @@ const App: React.FC = () => {
                 <span className="font-mono text-xs">PRESS ESC TO SHOW UI</span>
             </div>
 
-            {/* Modal is now pure component, passed necessary props */}
             <SettingsModal
                 isOpen={isSettingsModalOpen}
                 board={settingsTargetBoard}
@@ -478,7 +440,7 @@ const App: React.FC = () => {
 
                         // Boards
                         boards={boards}
-                        activeBoardId={activeBoardId}
+                        activeBoardId={activeBoardId || ''} // Pass empty string if null to satisfy prop type if string required, but board list selection uses id comparison so null is fine for "none selected"
                         onSelectBoard={setCurrentBoardId}
                         onAddBoard={addBoard}
                         onRenameBoard={renameBoard}
@@ -574,6 +536,71 @@ const App: React.FC = () => {
             {editingNodeId && notes.find(n => n.id === editingNodeId) && <EditModal note={notes.find(n => n.id === editingNodeId)!} onSave={(note) => { updateNote(note); setEditingNodeId(null); }} onClose={() => setEditingNodeId(null)} />}
         </div>
     );
+};
+
+// --- Main App Entry: Auth \u0026 Session Managment ---
+
+const App: React.FC = () => {
+    // 0. Auth \u0026 Session State
+    const [session, setSession] = useState<Session | null>(null);
+    const [userRole, setUserRole] = useState<string | null>(null);
+    const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+
+    const fetchUserRole = async (userId: string) => {
+        try {
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('role')
+                .eq('id', userId)
+                .single();
+
+            if (data) {
+                setUserRole(data.role);
+                if (data.role === 'admin') {
+                    console.log("🔥 超级管理员已登录");
+                }
+            }
+        } catch (e) {
+            console.error("Failed to fetch role", e);
+        }
+    };
+
+    useEffect(() => {
+        // Initial Session Check
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setSession(session);
+            if (session) fetchUserRole(session.user.id);
+            setIsLoadingAuth(false);
+        });
+
+        // Auth State Listener
+        const {
+            data: { subscription },
+        } = supabase.auth.onAuthStateChange((_event, session) => {
+            setSession(session);
+            if (session) {
+                fetchUserRole(session.user.id);
+            } else {
+                setUserRole(null);
+            }
+            setIsLoadingAuth(false);
+        });
+
+        return () => subscription.unsubscribe();
+    }, []);
+
+    // Render Logic Gating
+    if (isLoadingAuth) {
+        return <div className="w-screen h-screen bg-black text-white flex items-center justify-center font-mono animate-pulse">Initializing Secure Connection...</div>;
+    }
+
+    if (!session) {
+        return <Login />;
+    }
+
+    // Only render the main app if session is valid. 
+    // This ensures useBoards hooks inside ClueWallApp only run when referenced to a valid user.
+    return <ClueWallApp session={session} userRole={userRole} />;
 };
 
 export default App;

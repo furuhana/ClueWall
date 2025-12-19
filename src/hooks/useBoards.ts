@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { Board } from '../types';
 
 export const useBoards = (
+    userId?: string,
     onBoardSwitch?: () => void
 ) => {
     const [boards, setBoards] = useState<Board[]>([]);
@@ -11,6 +12,13 @@ export const useBoards = (
     // Fetch Boards & Subscribe to Realtime Changes
     useEffect(() => {
         let isMounted = true;
+
+        if (!userId) {
+            console.log("🔥 [useBoards] 无有效用户信息，跳过加载");
+            setBoards([]);
+            setCurrentBoardId(null);
+            return;
+        }
 
         // Initial Fetch
         const fetchBoards = async () => {
