@@ -8,8 +8,9 @@ export const useBoards = (
     const [boards, setBoards] = useState<Board[]>([]);
     const [currentBoardId, setCurrentBoardId] = useState<string | null>(null);
 
-    // Fetch Boards
+    // Fetch Boards & Subscribe to Realtime Changes
     useEffect(() => {
+        // Initial Fetch
         const fetchBoards = async () => {
             const { data, error } = await supabase.from('boards').select('*').order('created_at', { ascending: true });
 
@@ -40,8 +41,71 @@ export const useBoards = (
         };
 
         fetchBoards();
-        // NOTE: dependency array is empty to run once on mount. 
-    }, []);
+
+        // Realtime Subscription
+        const channel = supabase.channel('realtime-boards')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'boards' },
+                (payload) => {
+                    console.log('Realtime change received!', payload);
+
+                    if (payload.eventType === 'INSERT') {
+                        const newBoard = payload.new as Board;
+                        setBoards(prev => {
+                            // Deduplicate: Check if board already exists (e.g. from local optimistic add)
+                            if (prev.some(b => b.id === newBoard.id)) return prev;
+                            return [...prev, newBoard];
+                        });
+                    } else if (payload.eventType === 'UPDATE') {
+                        const updatedBoard = payload.new as Board;
+                        setBoards(prev => prev.map(b => b.id === updatedBoard.id ? updatedBoard : b));
+
+                        // Note: If ID changed, we might need to handle currentBoardId switch, 
+                        // but updating ID is complex and handled via full reload or local optimistic update for now.
+                        // Ideally, if the current board's ID changed externally, we should update the ref.
+                        // But payload.old usually only has ID, so matching old ID might be tricky if we don't have it.
+                        // Just refreshing the name for now.
+                    } else if (payload.eventType === 'DELETE') {
+                        const deletedId = payload.old.id; // payload.old contains the ID of the deleted record
+                        setBoards(prev => {
+                            const nextBoards = prev.filter(b => b.id !== deletedId);
+                            return nextBoards;
+                        });
+
+                        // If the currently active board was deleted remotely, switch escape
+                        setCurrentBoardId(prevId => {
+                            if (prevId === deletedId) {
+                                // Find next ID from the *fresh* state logic? 
+                                // Since we are inside setBoards setState updater, we can't see the 'new' state yet here easily without complexity.
+                                // But simple logic: if current deleted, confirm via alert or just switch to first available?
+                                // Let's just switch to null first, then useEffect or component will handle empty state?
+                                // Actually, better to reload to stay safe or pick the first remaining one from prev list (excluding deleted).
+                                // NOTE: This closure has stale 'boards' unless we use functional update.
+                                // We can't access nextBoards here.
+                                // Let's simplify: User will see "Deleted" state or empty.
+                                // We can rely on a separate useEffect to fix invalid currentBoardId if we really wanted to, 
+                                // but standard practice is just to let it be or switch to safe default.
+                                return null;
+                            }
+                            return prevId;
+                        });
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, []); // Run once on mount
+
+    // Safety: If currentBoardId becomes null (e.g. deleted via realtime) but boards exist, select first one.
+    useEffect(() => {
+        if (!currentBoardId && boards.length > 0) {
+            setCurrentBoardId(boards[0].id);
+        }
+    }, [currentBoardId, boards]);
 
     const addBoard = useCallback(async () => {
         // Fix: Explicitly generate ID to avoid null constraint violation
@@ -69,8 +133,9 @@ export const useBoards = (
 
             // 1. Immediate State Refresh
             setBoards(prev => {
-                const next = [...prev, createdBoard];
-                return next;
+                // Check if already added by realtime subscription to avoid dupes
+                if (prev.some(b => b.id === createdBoard.id)) return prev;
+                return [...prev, createdBoard];
             });
 
             // 2. Force Switch
@@ -109,6 +174,10 @@ export const useBoards = (
             const { error } = await supabase.from('boards').delete().eq('id', id);
             if (error) throw error;
 
+            // Local state update happens here, AND via realtime callback. 
+            // We can rely on realtime, but optimistic is smoother.
+            // Deduplication logic in realtime callback handles this.
+
             setBoards(prev => {
                 const nextBoards = prev.filter(b => b.id !== id);
 
@@ -117,9 +186,6 @@ export const useBoards = (
                     const nextId = nextBoards.length > 0 ? nextBoards[0].id : null;
                     if (nextId) setCurrentBoardId(nextId);
                     else {
-                        // If no boards left, logically we should create a new default one, 
-                        // but for now we just let the UI handle empty state or the useEffect to re-fetch/create.
-                        // Or reload page.
                         window.location.reload();
                     }
                 }
@@ -130,7 +196,7 @@ export const useBoards = (
             console.error("Delete failed:", e);
             alert("Delete failed: " + e.message);
         }
-    }, [currentBoardId]); // removed 'boards' dependency to avoid stale closure issues if setBoards updater is used correctly
+    }, [currentBoardId]);
 
     // Update Board ID
     const updateBoardId = useCallback(async (oldId: string, newId: string) => {
