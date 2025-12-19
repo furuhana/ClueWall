@@ -90,9 +90,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, board, onClose, o
 interface ClueWallAppProps {
     session: Session;
     userRole: string | null;
+    onSignOut: () => void;
 }
 
-const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole }) => {
+const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut }) => {
     // 1. Interaction Ref for Conflict Resolution
     const interactionRef = useRef<{ draggingId: number | null; resizingId: number | null; rotatingId: number | null }>({ draggingId: null, resizingId: null, rotatingId: null });
 
@@ -428,6 +429,7 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole }) => {
                             setSettingsTargetBoard(board);
                             setIsSettingsModalOpen(true);
                         }}
+                        onSignOut={onSignOut}
                     />
                 </div>
             )}
@@ -527,8 +529,8 @@ const App: React.FC = () => {
 
     const [isCheckingProfile, setIsCheckingProfile] = useState(false);
 
-    // Profile Check & Creation Logic
-    const checkOrCreateProfile = async (userId: string, email: string) => {
+    // Strict Profile Verification Logic
+    const verifyProfileStrict = async (userId: string) => {
         setIsCheckingProfile(true);
         try {
             // 1. Check if profile exists
@@ -538,36 +540,48 @@ const App: React.FC = () => {
                 .eq('id', userId)
                 .single();
 
-            if (profile) {
-                console.log("🔥 Profile found:", profile);
-                setUserRole(profile.role);
-                setIsCheckingProfile(false);
+            if (fetchError && fetchError.code !== 'PGRST116') {
+                console.error("Error checking profile:", fetchError);
+                // On technical error, we might want to retry or just guard.
+                // For safety, assume failure if error is not "row not found".
+            }
+
+            if (!profile) {
+                // ANOMALY DETECTED: User exists in Auth but not in Profiles.
+                console.error("⛔ Security Alert: User has no profile record.");
+                alert("账号异常，请联系管理员");
+                await supabase.auth.signOut();
+                setSession(null);
                 return;
             }
 
-            if (fetchError && fetchError.code !== 'PGRST116') {
-                console.error("Error fetching profile:", fetchError);
-                // Continue to try create? Or fail? Let's try create if not found.
+            console.log("🔥 Profile verified:", profile);
+
+            // 2. Check Role Initialization
+            if (!profile.role) {
+                // Role is empty, meaning initialization incomplete (or pending approval logic?)
+                // User requirement: "如果 profiles 表中的 role 为空... 显示加载动画"
+                // So we keep isCheckingProfile = true.
+                console.warn("⚠️ Profile exists but role is missing. Waiting for initialization...");
+                return;
             }
 
-            // 2. Create if missing
-            console.log("🔥 Profile missing, creating new record...");
-            const { error: insertError } = await supabase
-                .from('profiles')
-                .insert([{ id: userId, email: email, role: 'user' }]);
-
-            if (insertError) {
-                console.error("Failed to create profile:", insertError);
-            } else {
-                console.log("✅ Profile initialized successfully");
-                setUserRole('user');
-            }
+            // Valid Profile & Role
+            setUserRole(profile.role);
+            setIsCheckingProfile(false);
 
         } catch (e) {
-            console.error("Profile check failed:", e);
-        } finally {
-            setIsCheckingProfile(false);
+            console.error("Profile check failed critical:", e);
+            alert("System Error during Profile Verification.");
+            await supabase.auth.signOut();
         }
+    };
+
+    const handleSignOut = async () => {
+        await supabase.auth.signOut();
+        setSession(null);
+        setUserRole(null);
+        setIsCheckingProfile(false);
     };
 
     useEffect(() => {
@@ -576,7 +590,7 @@ const App: React.FC = () => {
             setSession(session);
             setIsLoadingAuth(false);
             if (session) {
-                checkOrCreateProfile(session.user.id, session.user.email || '');
+                verifyProfileStrict(session.user.id);
             }
         });
 
@@ -587,7 +601,7 @@ const App: React.FC = () => {
             setSession(session);
             setIsLoadingAuth(false);
             if (session) {
-                checkOrCreateProfile(session.user.id, session.user.email || '');
+                verifyProfileStrict(session.user.id);
             } else {
                 setUserRole(null);
                 setIsCheckingProfile(false);
@@ -614,7 +628,7 @@ const App: React.FC = () => {
     }
 
     // Only render the main app if session is valid AND profile checked. 
-    return <ClueWallApp session={session} userRole={userRole} />;
+    return <ClueWallApp session={session} userRole={userRole} onSignOut={handleSignOut} />;
 };
 
 export default App;

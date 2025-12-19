@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Board } from '../types';
 import {
     StickyNote, Image as ImageIcon, Folder, FileText, MapPin, Trash2,
-    PlusSquare, Settings, Edit3, Globe, ChevronRight, Archive, Shield
+    PlusSquare, Settings, Edit3, Globe, ChevronRight, Archive, Shield, LogOut
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -20,12 +20,13 @@ interface SidebarProps {
     onRenameBoard: (id: number, newName: string) => void;
     onDeleteBoard: (id: number) => void;
     onOpenSettings: (board: Board) => void;
+    onSignOut: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
     onAddNote, onClearBoard, isPinMode, onTogglePinMode,
     boards, activeBoardId, onSelectBoard, onAddBoard, onRenameBoard, onDeleteBoard,
-    onOpenSettings
+    onOpenSettings, onSignOut
 }) => {
     const [isExpanded, setIsExpanded] = useState(true);
 
@@ -148,6 +149,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         </button>
                     </div>
                 )}
+                <div className="p-4 border-t border-white/10 mt-auto">
+                    <button
+                        onClick={onSignOut}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-950/30 hover:bg-red-900/50 text-red-400 border border-red-900/30 rounded transition-all text-xs font-bold uppercase tracking-wider"
+                    >
+                        <LogOut size={14} /> Sign Out
+                    </button>
+                </div>
             </div>
         </div>
     );
