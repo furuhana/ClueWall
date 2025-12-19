@@ -1,56 +1,58 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Note, Connection } from './types';
+import { Note, Connection, DragOffset } from './types';
 import { getNoteDimensions } from './utils';
 import DetectiveNode from './components/DetectiveNode';
 import ConnectionLayer from './components/ConnectionLayer';
 import EditModal from './components/EditModal';
 import { 
   Trash2, MapPin, UploadCloud, Plus, Minus, Volume2, VolumeX, LocateFixed, Maximize, Loader2, MousePointer2,
-  StickyNote, Image as ImageIcon, Folder, FileText, Edit3, FolderKanban, Layout
+  StickyNote, Image as ImageIcon, Folder, FileText, Crosshair
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
+// 🟢 1. 引入删除图片的 API
 import { uploadImage, deleteImageFromDrive } from './api'; 
 
 const GRID_URL = "data:image/svg+xml,%3Csvg width='30' height='30' viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='30' height='30' fill='none' stroke='%23CAB9A1' stroke-width='0.7' opacity='0.3'/%3E%3C/svg%3E";
-
-// --- 接口定义 ---
 type ResizeMode = 'CORNER' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM';
 interface TransformStartData { mouseX: number; mouseY: number; initialRotation: number; initialWidth: number; initialHeight: number; initialX: number; initialY: number; initialScale: number; resizeMode?: ResizeMode; }
 interface PinDragData { noteId: string; startX: number; startY: number; initialPinX: number; initialPinY: number; rotation: number; width: number; height: number; }
 interface SelectionBox { startX: number; startY: number; currentX: number; currentY: number; }
-interface Board { id: string; name: string; }
 
 const NOTE_TYPES: Note['type'][] = ['note', 'photo', 'dossier', 'scrap', 'marker'];
 
 const App: React.FC = () => {
-  // --- 状态管理 ---
   const [notes, setNotes] = useState<Note[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
   const [isPanning, setIsPanning] = useState(false);
+  const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const lastDragPosRef = useRef<{ x: number; y: number } | null>(null); 
   const [maxZIndex, setMaxZIndex] = useState<number>(10);
-  
-  const [boards, setBoards] = useState<Board[]>([]);
-  const [activeBoardId, setActiveBoardId] = useState<string>('v1'); 
-  const [renamingBoardId, setRenamingBoardId] = useState<string | null>(null);
-  const [editBoardName, setEditBoardName] = useState("");
-
+   
+  // 🟢 选择状态
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
+
   const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [resizingId, setResizingId] = useState<string | null>(null);
   const [transformStart, setTransformStart] = useState<TransformStartData | null>(null);
   const [pinDragData, setPinDragData] = useState<PinDragData | null>(null);
-  const isPinDragRef = useRef(false); 
+  const isPinDragRef = useRef(false);
   const [connectingNodeId, setConnectingNodeId] = useState<string | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [isPinMode, setIsPinMode] = useState<boolean>(false);
+   
+  // 默认隐藏 UI
   const [isUIHidden, setIsUIHidden] = useState<boolean>(true); 
   const [showHiddenModeToast, setShowHiddenModeToast] = useState(false);
+   
+  // 幽灵模式状态
   const [ghostNote, setGhostNote] = useState<{ x: number; y: number; typeIndex: number } | null>(null);
+
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const dragCounter = useRef(0);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
@@ -58,359 +60,701 @@ const App: React.FC = () => {
   const boardRef = useRef<HTMLDivElement>(null);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
 
-  // 引用同步，确保在异步和回调中获取最新状态
-  const interactionRef = useRef({ draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, activeBoardId, isUIHidden, ghostNote, connectingNodeId, isPinMode });
-  useEffect(() => { 
-    interactionRef.current = { ...interactionRef.current, draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, activeBoardId, isUIHidden, ghostNote, connectingNodeId, isPinMode }; 
-  }, [draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, activeBoardId, isUIHidden, ghostNote, connectingNodeId, isPinMode]);
-  
-  const toWorld = useCallback((screenX: number, screenY: number) => ({ x: (screenX - view.x) / view.zoom, y: (screenY - view.y) / view.zoom }), [view]);
+  const interactionRef = useRef({ draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId, ghostNote });
+  useEffect(() => { interactionRef.current = { draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId, ghostNote }; }, [draggingId, resizingId, rotatingId, pinDragData, selectionBox, selectedIds, notes, connections, connectingNodeId, ghostNote]);
+  const toWorld = useCallback((screenX: number, screenY: number) => { return { x: (screenX - view.x) / view.zoom, y: (screenY - view.y) / view.zoom }; }, [view]);
 
-  // --- 1. 画布视图控制 ---
-  const handleZoomIn = () => setView(v => ({ ...v, zoom: Math.min(v.zoom + 0.1, 3.0) }));
-  const handleZoomOut = () => setView(v => ({ ...v, zoom: Math.max(v.zoom - 0.1, 0.1) }));
-  const handleResetView = () => setView({ x: 0, y: 0, zoom: 1 });
-
-  const handleWheel = (e: React.WheelEvent) => { 
-    if (interactionRef.current.ghostNote) {
-      setGhostNote(prev => prev ? { ...prev, typeIndex: (prev.typeIndex + (e.deltaY > 0 ? 1 : -1) + NOTE_TYPES.length) % NOTE_TYPES.length } : null);
-      return;
+  // 1. 监听隐藏状态，触发 Toast
+  useEffect(() => {
+    if (isUIHidden) {
+      setShowHiddenModeToast(true);
+      const timer = setTimeout(() => { setShowHiddenModeToast(false); }, 3000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowHiddenModeToast(false);
     }
-    if (editingNodeId) return; 
-    const delta = -e.deltaY * 0.001; 
-    const newZoom = Math.min(Math.max(0.1, view.zoom + delta), 3.0); 
-    const worldMouse = toWorld(e.clientX, e.clientY); 
-    setView({ x: e.clientX - worldMouse.x * newZoom, y: e.clientY - worldMouse.y * newZoom, zoom: newZoom }); 
+  }, [isUIHidden]);
+
+  // 2. 删除功能
+  const deleteFromCloud = async (noteId?: string, connId?: string) => {
+      if (noteId) await supabase.from('notes').delete().eq('id', noteId);
+      if (connId) await supabase.from('connections').delete().eq('id', connId);
   };
 
-  // --- 2. 数据处理与云端同步 ---
+  const handleDeleteNote = (id: string) => { 
+      if (connectingNodeId === id) setConnectingNodeId(null);
+
+      // 🟢 2. 核心修复：检查并删除 Google Drive 上的文件
+      const targetNote = notes.find(n => n.id === id);
+      if (targetNote && targetNote.fileId) {
+          deleteImageFromDrive(targetNote.fileId);
+      }
+
+      const nextNotes = notes.filter(n => n.id !== id); 
+      const nextConns = connections.filter(c => c.sourceId !== id && c.targetId !== id); 
+      setNotes(nextNotes); 
+      setConnections(nextConns); 
+      deleteFromCloud(id); 
+      const relatedConns = connections.filter(c => c.sourceId === id || c.targetId === id); 
+      relatedConns.forEach(c => deleteFromCloud(undefined, c.id)); 
+  };
+
+  const handleDeleteConnection = (id: string) => { 
+      const nextConns = connections.filter(c => c.id !== id); 
+      setConnections(nextConns); 
+      deleteFromCloud(undefined, id); 
+  };
+
+  // 3. 全局键盘监听
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 🟢 幽灵模式切换逻辑
+      if (interactionRef.current.ghostNote) {
+          if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+              setGhostNote(prev => prev ? { ...prev, typeIndex: (prev.typeIndex + 1) % NOTE_TYPES.length } : null);
+              return;
+          }
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+              setGhostNote(prev => prev ? { ...prev, typeIndex: (prev.typeIndex - 1 + NOTE_TYPES.length) % NOTE_TYPES.length } : null);
+              return;
+          }
+          if (e.key === 'Enter') {
+              confirmGhostCreation();
+              return;
+          }
+      }
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+          if (editingNodeId) return;
+
+          const { connectingNodeId: activeConnectingId, selectedIds: currentSelected, notes: currentNotes, connections: currentConns } = interactionRef.current;
+
+          // 🚨 删除图钉逻辑
+          if (activeConnectingId) {
+              const nextNotes = currentNotes.map(n => 
+                  n.id === activeConnectingId ? { ...n, hasPin: false } : n
+              );
+              const nextConns = currentConns.filter(c => c.sourceId !== activeConnectingId && c.targetId !== activeConnectingId);
+
+              setNotes(nextNotes);
+              setConnections(nextConns);
+              setConnectingNodeId(null); 
+              setSelectedIds(new Set()); 
+
+              const changedNote = nextNotes.find(n => n.id === activeConnectingId);
+              if (changedNote) saveToCloud([changedNote], []); 
+
+              const deletedConns = currentConns.filter(c => c.sourceId === activeConnectingId || c.targetId === activeConnectingId);
+              deletedConns.forEach(c => deleteFromCloud(undefined, c.id));
+              return; 
+          }
+
+          // 🚨 删除便签逻辑 (批量删除)
+          if (currentSelected.size > 0) {
+              const idsArray = Array.from(currentSelected);
+              
+              // 🟢 3. 核心修复：批量删除时也要检查并删除 Drive 文件
+              idsArray.forEach(id => {
+                  const noteToDelete = currentNotes.find(n => n.id === id);
+                  if (noteToDelete && noteToDelete.fileId) {
+                      deleteImageFromDrive(noteToDelete.fileId);
+                  }
+                  deleteFromCloud(id);
+              });
+
+              const nextNotes = currentNotes.filter(n => !currentSelected.has(n.id));
+              const nextConns = currentConns.filter(c => !currentSelected.has(c.sourceId) && !currentSelected.has(c.targetId));
+              
+              setNotes(nextNotes);
+              setConnections(nextConns);
+              setSelectedIds(new Set());
+
+              const deletedConns = currentConns.filter(c => currentSelected.has(c.sourceId) || currentSelected.has(c.targetId));
+              deletedConns.forEach(c => deleteFromCloud(undefined, c.id));
+          }
+      }
+
+      if (e.key === 'Escape') {
+        if (interactionRef.current.ghostNote) {
+            setGhostNote(null);
+            return;
+        }
+        if (isUIHidden) {
+             setIsUIHidden(false); 
+        } else {
+             setConnectingNodeId(null);
+             setIsPinMode(false);
+             setSelectionBox(null);
+             setDraggingId(null);
+             setRotatingId(null);
+             setResizingId(null);
+             setSelectedIds(new Set());
+        }
+      }
+      if (e.code === 'Space' && !e.repeat) {
+        setIsSpacePressed(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsSpacePressed(false);
+        setIsPanning(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [isUIHidden, editingNodeId]); 
+
+  // 实时订阅
   useEffect(() => {
     const fetchInitialData = async () => {
-      setIsLoading(true);
-      const { data: bData } = await supabase.from('boards').select('*').order('updated_at', { ascending: true });
-      if (bData && bData.length > 0) setBoards(bData);
-      else { const def = { id: 'v1', name: 'Version 1' }; await supabase.from('boards').insert([def]); setBoards([def]); }
-      
-      const { data: nData } = await supabase.from('notes').select('*').eq('board_id', activeBoardId);
-      const { data: cData } = await supabase.from('connections').select('*').eq('board_id', activeBoardId);
-      setNotes(nData ? (nData as any) : []);
-      if (nData) setMaxZIndex(nData.reduce((max: number, n: any) => Math.max(max, n.zIndex || 0), 10));
-      setConnections(cData ? (cData as any) : []);
+      const { data: notesData } = await supabase.from('notes').select('*');
+      const { data: connsData } = await supabase.from('connections').select('*');
+      if (notesData) {
+         const uniqueNotes = Array.from(new Map(notesData.map((item: any) => [item.id, item])).values());
+         setNotes(uniqueNotes as any);
+         const maxZ = notesData.reduce((max: number, n: any) => Math.max(max, n.zIndex || 0), 10);
+         setMaxZIndex(maxZ);
+      }
+      if (connsData) {
+         const uniqueConns = Array.from(new Map(connsData.map((item: any) => [item.id, item])).values());
+         setConnections(uniqueConns as any);
+      }
       setIsLoading(false);
     };
     fetchInitialData();
 
-    const channel = supabase.channel(`realtime-sync-${activeBoardId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `board_id=eq.${activeBoardId}` }, (payload) => {
-        if (payload.eventType === 'INSERT') setNotes(p => p.some(n => n.id === payload.new.id) ? p : [...p, payload.new as Note]);
-        if (payload.eventType === 'UPDATE') setNotes(p => p.map(n => n.id === payload.new.id ? (payload.new as Note) : n));
-        if (payload.eventType === 'DELETE') setNotes(p => p.filter(n => n.id !== payload.old.id));
+    const channel = supabase.channel('detective-wall-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, (payload) => {
+          if (payload.eventType === 'INSERT') {
+             setNotes(prev => prev.some(n => n.id === payload.new.id) ? prev : [...prev, payload.new as Note]);
+          } else if (payload.eventType === 'UPDATE') {
+             const newNote = payload.new as Note;
+             setNotes(prev => prev.map(n => {
+                const current = interactionRef.current;
+                if (n.id === newNote.id && (current.draggingId === n.id || current.resizingId === n.id || current.rotatingId === n.id)) return n;
+                return n.id === newNote.id ? newNote : n;
+             }));
+          } else if (payload.eventType === 'DELETE') setNotes(prev => prev.filter(n => n.id !== payload.old.id));
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'connections', filter: `board_id=eq.${activeBoardId}` }, (payload) => {
-        if (payload.eventType === 'INSERT') setConnections(p => p.some(c => c.id === payload.new.id) ? p : [...p, payload.new as Connection]);
-        if (payload.eventType === 'DELETE') setConnections(p => p.filter(c => c.id !== payload.old.id));
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'connections' }, (payload) => {
+           if (payload.eventType === 'INSERT') {
+              setConnections(prev => prev.some(c => c.id === payload.new.id) ? prev : [...prev, payload.new as Connection]);
+           }
+           else if (payload.eventType === 'UPDATE') { const newConn = payload.new as Connection; setConnections(prev => prev.map(c => c.id === newConn.id ? newConn : c)); }
+           else if (payload.eventType === 'DELETE') setConnections(prev => prev.filter(c => c.id !== payload.old.id));
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [activeBoardId]);
+  }, []);
 
   const saveToCloud = async (changedNotes: Note[], changedConns: Connection[]) => {
-      if (changedNotes.length > 0) await supabase.from('notes').upsert(changedNotes.map(n => ({ ...n, board_id: activeBoardId })));
-      if (changedConns.length > 0) await supabase.from('connections').upsert(changedConns.map(c => ({ ...c, board_id: activeBoardId })));
+      if (changedNotes.length > 0) await supabase.from('notes').upsert(changedNotes);
+      if (changedConns.length > 0) await supabase.from('connections').upsert(changedConns);
   };
 
-  const handleDeleteNote = (id: string) => {
-    const target = notes.find(n => n.id === id);
-    if (target?.fileId) deleteImageFromDrive(target.fileId);
-    setNotes(prev => prev.filter(n => n.id !== id));
-    setConnections(prev => prev.filter(c => c.sourceId !== id && c.targetId !== id));
-    supabase.from('notes').delete().eq('id', id).then(() => {});
+  const cancelAnimation = useCallback(() => { if (animationFrameRef.current) { cancelAnimationFrame(animationFrameRef.current); animationFrameRef.current = null; } }, []);
+  const handleResetView = () => {
+      const start = { ...view }; const end = { x: 0, y: 0, zoom: 1 }; if (start.x === 0 && start.y === 0 && start.zoom === 1) return;
+      const startTime = performance.now(); const duration = 1000; const easeOutQuart = (x: number): number => 1 - Math.pow(1 - x, 4);
+      const animate = (time: number) => {
+          const elapsed = time - startTime; const progress = Math.min(elapsed / duration, 1); const ease = easeOutQuart(progress);
+          const newX = start.x + (end.x - start.x) * ease; const newY = start.y + (end.y - start.y) * ease; const newZoom = start.zoom + (end.zoom - start.zoom) * ease;
+          setView({ x: newX, y: newY, zoom: newZoom });
+          if (progress < 1) animationFrameRef.current = requestAnimationFrame(animate); else animationFrameRef.current = null;
+      };
+      cancelAnimation(); animationFrameRef.current = requestAnimationFrame(animate);
   };
 
-  // --- 3. 键盘/快捷键处理 ---
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl + U: Stealth UI
-      if (e.ctrlKey && e.key.toLowerCase() === 'u') {
-        e.preventDefault();
-        setIsUIHidden(prev => !prev);
-        if (!isUIHidden) setShowHiddenModeToast(true);
-        return;
+  const handleWheel = (e: React.WheelEvent) => { 
+      // 🟢 幽灵模式：滚轮切换类型
+      if (ghostNote) {
+          const direction = e.deltaY > 0 ? 1 : -1;
+          setGhostNote(prev => {
+              if (!prev) return null;
+              const nextIndex = (prev.typeIndex + direction + NOTE_TYPES.length) % NOTE_TYPES.length;
+              return { ...prev, typeIndex: nextIndex };
+          });
+          return;
       }
-      // Delete/Backspace: 批量删除对象
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (editingNodeId) return;
-        const { selectedIds, connectingNodeId } = interactionRef.current;
-        if (connectingNodeId) { setConnectingNodeId(null); return; }
-        if (selectedIds.size > 0) {
-            Array.from(selectedIds).forEach(id => handleDeleteNote(id));
-            setSelectedIds(new Set());
+
+      if (editingNodeId) return; 
+      cancelAnimation(); 
+      const delta = -e.deltaY * 0.001; 
+      const newZoom = Math.min(Math.max(0.1, view.zoom + delta), 3.0); 
+      const worldMouse = toWorld(e.clientX, e.clientY); 
+      setView({ x: e.clientX - worldMouse.x * newZoom, y: e.clientY - worldMouse.y * newZoom, zoom: newZoom }); 
+  };
+   
+  const handleBackgroundMouseDown = (e: React.MouseEvent) => {
+    // 🟢 幽灵模式：左键确认创建
+    if (ghostNote) {
+        if (e.button === 0) {
+            confirmGhostCreation();
         }
-      }
-      // ESC: 重置状态
-      if (e.key === 'Escape') {
-        if (interactionRef.current.ghostNote) setGhostNote(null);
-        else if (interactionRef.current.isUIHidden) setIsUIHidden(false);
-        else { setConnectingNodeId(null); setIsPinMode(false); setSelectionBox(null); setSelectedIds(new Set()); }
-      }
-      if (e.code === 'Space' && !e.repeat) setIsSpacePressed(true);
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', (e) => { if (e.code === 'Space') setIsSpacePressed(false); });
-    return () => { window.removeEventListener('keydown', handleKeyDown); };
-  }, [editingNodeId, isUIHidden]);
+        return; 
+    }
 
-  // --- 4. 核心交互函数：移动、拉伸、旋转、图钉 ---
+    cancelAnimation();
+    if (e.button === 1 || isSpacePressed) {
+        e.preventDefault(); setIsPanning(true); lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+    } else if (e.button === 0) {
+        if (!e.ctrlKey && !e.shiftKey) setSelectedIds(new Set());
+        setSelectionBox({ startX: e.clientX, startY: e.clientY, currentX: e.clientX, currentY: e.clientY });
+    }
+  };
+
+  const handleBackgroundDoubleClick = (e: React.MouseEvent) => {
+      if (e.target === boardRef.current && !isPanning && !draggingId) {
+          const worldPos = toWorld(e.clientX, e.clientY);
+          setGhostNote({ x: worldPos.x, y: worldPos.y, typeIndex: 0 });
+      }
+  };
+
+  const confirmGhostCreation = () => {
+      if (!ghostNote) return;
+      
+      const type = NOTE_TYPES[ghostNote.typeIndex];
+      const id = `new-${Date.now()}`;
+      
+      let width = 256; let height = 160; 
+      if (type === 'photo') height = 280; 
+      else if (type === 'dossier') height = 224; 
+      else if (type === 'scrap') { width = 257; height = 50; } 
+      else if (type === 'marker') { width = 30; height = 30; } 
+      
+      let content = 'New Clue'; 
+      if (type === 'photo') content = 'New Evidence'; 
+      else if (type === 'scrap') content = 'Scrap note...'; 
+      else if (type === 'marker') { const existingMarkers = notes.filter(n => n.type === 'marker'); content = (existingMarkers.length + 1).toString(); } 
+      
+      const newNote: Note = { 
+          id, type, content, x: ghostNote.x, y: ghostNote.y, 
+          zIndex: maxZIndex + 1, rotation: (Math.random() * 10) - 5, 
+          fileId: type === 'photo' ? '/photo_1.png' : undefined, hasPin: false, scale: 1, width, height 
+      }; 
+      
+      const nextNotes = [...notes, newNote]; 
+      setMaxZIndex(prev => prev + 1); 
+      setNotes(nextNotes); 
+      setSelectedIds(new Set([id])); 
+      saveToCloud(nextNotes, connections);
+      setGhostNote(null);
+  };
+
+  const handleBackgroundClick = (e: React.MouseEvent) => {
+    if (ghostNote) return;
+    if (!isPanning && !selectionBox && (e.target === boardRef.current)) { 
+        setConnectingNodeId(null); setSelectedIds(new Set()); setIsPinMode(false); 
+    }
+  };
+
+  const handleZoomIn = () => setView(v => ({...v, zoom: Math.min(v.zoom + 0.2, 3)}));
+  const handleZoomOut = () => setView(v => ({...v, zoom: Math.max(v.zoom - 0.2, 0.1)}));
+
+  const handleRotateStart = (e: React.MouseEvent, id: string) => { e.stopPropagation(); e.preventDefault(); const note = notes.find(n => n.id === id); if(!note) return; setRotatingId(id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth:0, initialHeight:0, initialX:0, initialY:0, initialScale:1 }); };
+   
+  // 🟢 修复1：完全移除之前的“阻止拉伸”逻辑，允许所有卡片上下拉伸
+  const handleResizeStart = (e: React.MouseEvent, id: string, mode: ResizeMode) => { 
+      e.stopPropagation(); e.preventDefault(); 
+      const note = notes.find(n => n.id === id); 
+      if(!note) return; 
+
+      const dims = getNoteDimensions(note); 
+      setResizingId(id); 
+      setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth: dims.width, initialHeight: dims.height, initialX: note.x, initialY: note.y, initialScale: note.scale || 1, resizeMode: mode }); 
+  };
+
+  const handlePinMouseDown = (e: React.MouseEvent, id: string) => { 
+      e.stopPropagation(); 
+      e.preventDefault(); 
+      const note = notes.find(n => n.id === id); 
+      if (!note) return; 
+      const { width, height } = getNoteDimensions(note); 
+      isPinDragRef.current = false; 
+      setPinDragData({ noteId: id, startX: e.clientX, startY: e.clientY, initialPinX: note.pinX ?? width / 2, initialPinY: note.pinY ?? 10, rotation: note.rotation, width, height }); 
+  };
+   
   const handleNodeMouseDown = (e: React.MouseEvent, id: string) => {
     if (e.button === 1 || isSpacePressed) return; 
     e.stopPropagation(); 
     if (ghostNote) { setGhostNote(null); return; }
 
-    const { isPinMode, connectingNodeId } = interactionRef.current;
-    
-    // 图钉连线或创建逻辑拦截
-    if (isPinMode || (connectingNodeId && connectingNodeId !== id)) {
-        const target = notes.find(n => n.id === id); if (!target) return;
+    if (isPinMode || connectingNodeId) {
+        const targetNote = notes.find(n => n.id === id); if (!targetNote) return;
         const rect = e.currentTarget.getBoundingClientRect();
-        const rad = -(target.rotation * Math.PI) / 180;
-        const { width: w, height: h } = getNoteDimensions(target);
-        const pinX = w/2 + ((e.clientX - (rect.left + rect.width/2)) * Math.cos(rad) - (e.clientY - (rect.top + rect.height/2)) * Math.sin(rad)) / view.zoom;
-        const pinY = h/2 + ((e.clientX - (rect.left + rect.width/2)) * Math.sin(rad) + (e.clientY - (rect.top + rect.height/2)) * Math.cos(rad)) / view.zoom;
-        const updated = { ...target, hasPin: true, pinX, pinY };
-        
+        const cx = rect.left + rect.width / 2; const cy = rect.top + rect.height / 2;
+        const dx = e.clientX - cx; const dy = e.clientY - cy;
+        const rad = -(targetNote.rotation * Math.PI) / 180;
+        const unrotatedDx = dx * Math.cos(rad) - dy * Math.sin(rad);
+        const unrotatedDy = dx * Math.sin(rad) + dy * Math.cos(rad);
+        const { width: w, height: h } = getNoteDimensions(targetNote);
+        const pinX = w / 2 + (unrotatedDx / view.zoom);
+        const pinY = h / 2 + (unrotatedDy / view.zoom);
+        const updatePin = (n: Note) => ({ ...n, hasPin: true, pinX, pinY });
+
+        if (isPinMode) { const nextNotes = notes.map((n) => n.id === id ? updatePin(n) : n); setNotes(nextNotes); saveToCloud(nextNotes, connections); return; }
         if (connectingNodeId) {
-            const newConn = { id: `c-${Date.now()}`, sourceId: connectingNodeId, targetId: id, color: '#D43939' };
-            setNotes(p => p.map(n => n.id === id ? updated : n));
-            setConnections(p => [...p, newConn]);
-            saveToCloud([updated], [newConn]);
-            setConnectingNodeId(null);
-        } else {
-            setNotes(p => p.map(n => n.id === id ? updated : n));
-            saveToCloud([updated], []);
+            if (connectingNodeId === id) return;
+            const nextNotes = notes.map((n) => n.id === id ? updatePin(n) : n);
+            let nextConns = connections;
+            const exists = connections.some(c => (c.sourceId === connectingNodeId && c.targetId === id) || (c.sourceId === id && c.targetId === connectingNodeId));
+            if (!exists) { nextConns = [...connections, { id: `c-${Date.now()}`, sourceId: connectingNodeId, targetId: id, color: '#D43939' }]; }
+            setNotes(nextNotes); setConnections(nextConns); setConnectingNodeId(null); saveToCloud(nextNotes, nextConns); return;
         }
-        setIsPinMode(false); return;
+        return;
     }
 
-    // Alt 复制逻辑
+    const isMultiSelect = e.ctrlKey || e.metaKey || e.shiftKey;
+    if (isMultiSelect) {
+        setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+    } else {
+        if (!selectedIds.has(id)) setSelectedIds(new Set([id]));
+    }
+
+    const newZ = maxZIndex + 1; setMaxZIndex(newZ);
     if (e.altKey) {
-        const target = notes.find(n => n.id === id);
-        if (target) {
-            const newId = `dup-${Date.now()}`;
-            const newNode = { ...target, id: newId, x: target.x + 20, y: target.y + 20, zIndex: maxZIndex + 1, hasPin: false };
-            setNotes(p => [...p, newNode]); saveToCloud([newNode], []);
-            setDraggingId(newId); lastDragPosRef.current = { x: e.clientX, y: e.clientY };
-            return;
-        }
+          const targetNote = notes.find(n => n.id === id);
+          if (targetNote) {
+              const newId = `dup-${Date.now()}-${Math.random()}`;
+              const duplicatedNote: Note = { ...targetNote, id: newId, zIndex: newZ, x: targetNote.x + 20, y: targetNote.y + 20, hasPin: false, title: targetNote.title ? `${targetNote.title} (Copy)` : undefined, };
+              setNotes([...notes, duplicatedNote]); setDraggingId(newId); setSelectedIds(new Set([newId])); 
+              lastDragPosRef.current = { x: e.clientX, y: e.clientY };
+          }
+          return;
     }
 
-    // 多选与单选捕获
-    const isMulti = e.ctrlKey || e.shiftKey;
-    if (isMulti) setSelectedIds(p => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-    else if (!selectedIds.has(id)) setSelectedIds(new Set([id]));
-
-    setNotes(p => p.map(n => interactionRef.current.selectedIds.has(n.id) || n.id === id ? { ...n, zIndex: maxZIndex + 1 } : n));
+    setNotes(prev => prev.map(n => selectedIds.has(n.id) || n.id === id ? { ...n, zIndex: newZ } : n));
     setDraggingId(id); 
     lastDragPosRef.current = { x: e.clientX, y: e.clientY };
   };
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // 选框逻辑实现
+    if (ghostNote) return;
+
     if (selectionBox) {
-        const currentX = e.clientX, currentY = e.clientY;
-        setSelectionBox(p => p ? ({ ...p, currentX, currentY }) : null);
-        const wL = (Math.min(selectionBox.startX, currentX) - view.x) / view.zoom, wR = (Math.max(selectionBox.startX, currentX) - view.x) / view.zoom;
-        const wT = (Math.min(selectionBox.startY, currentY) - view.y) / view.zoom, wB = (Math.max(selectionBox.startY, currentY) - view.y) / view.zoom;
-        const nextS = new Set<string>();
-        notes.forEach(n => { const d = getNoteDimensions(n); if (!(n.x > wR || n.x + d.width < wL || n.y > wB || n.y + d.height < wT)) nextS.add(n.id); });
-        setSelectedIds(nextS); return;
-    }
-    // 拖拽平移逻辑 (中键或空格)
-    if (isPanning && lastMousePosRef.current) {
-        setView(v => ({ ...v, x: v.x + (e.clientX - lastMousePosRef.current!.x), y: v.y + (e.clientY - lastMousePosRef.current!.y) }));
-        lastMousePosRef.current = { x: e.clientX, y: e.clientY }; return;
-    }
-    // 对象移动逻辑
-    if (draggingId && lastDragPosRef.current) {
-        const dx = (e.clientX - lastDragPosRef.current.x) / view.zoom, dy = (e.clientY - lastDragPosRef.current.y) / view.zoom;
-        setNotes(p => p.map(n => (n.id === draggingId || selectedIds.has(n.id)) ? { ...n, x: n.x + dx, y: n.y + dy } : n));
-        lastDragPosRef.current = { x: e.clientX, y: e.clientY }; return;
-    }
-    // 图钉移动逻辑
-    if (pinDragData) {
-        isPinDragRef.current = true;
-        const dx = (e.clientX - pinDragData.startX) / view.zoom, dy = (e.clientY - pinDragData.startY) / view.zoom, rad = -(pinDragData.rotation * Math.PI) / 180;
-        let nPX = pinDragData.initialPinX + (dx * Math.cos(rad) - dy * Math.sin(rad)), nPY = pinDragData.initialPinY + (dx * Math.sin(rad) + dy * Math.cos(rad));
-        setNotes(prev => prev.map(n => n.id === pinDragData.noteId ? { ...n, pinX: Math.max(0, Math.min(nPX, pinDragData.width)), pinY: Math.max(0, Math.min(nPY, pinDragData.height)) } : n));
+        const currentX = e.clientX; 
+        const currentY = e.clientY;
+        setSelectionBox(prev => prev ? ({ ...prev, currentX, currentY }) : null);
+
+        const screenBoxLeft = Math.min(selectionBox.startX, currentX);
+        const screenBoxRight = Math.max(selectionBox.startX, currentX);
+        const screenBoxTop = Math.min(selectionBox.startY, currentY);
+        const screenBoxBottom = Math.max(selectionBox.startY, currentY);
+
+        const worldBoxLeft = (screenBoxLeft - view.x) / view.zoom;
+        const worldBoxRight = (screenBoxRight - view.x) / view.zoom;
+        const worldBoxTop = (screenBoxTop - view.y) / view.zoom;
+        const worldBoxBottom = (screenBoxBottom - view.y) / view.zoom;
+
+        const newSelected = new Set<string>();
+
+        notes.forEach(note => {
+            const dims = getNoteDimensions(note);
+            const width = (dims.width || note.width || 200) * (note.scale || 1);
+            const height = (dims.height || note.height || 200) * (note.scale || 1);
+
+            const noteLeft = note.x;
+            const noteRight = note.x + width;
+            const noteTop = note.y;
+            const noteBottom = note.y + height;
+
+            const isMissed = 
+                noteLeft > worldBoxRight || 
+                noteRight < worldBoxLeft || 
+                noteTop > worldBoxBottom || 
+                noteBottom < worldBoxTop;
+
+            if (!isMissed) {
+                newSelected.add(note.id);
+            }
+        });
+
+        setSelectedIds(newSelected);
         return;
     }
-    // 几何拉伸逻辑 (补全 边框/等比例)
-    if (resizingId && transformStart) {
-        const n = notes.find(x => x.id === resizingId); if(!n) return;
-        const dx = (e.clientX - transformStart.mouseX) / view.zoom, dy = (e.clientY - transformStart.mouseY) / view.zoom, rad = -(transformStart.initialRotation * Math.PI) / 180;
-        const lDx = dx * Math.cos(rad) - dy * Math.sin(rad), lDy = dx * Math.sin(rad) + dy * Math.cos(rad);
-        const L: any = { note: { w: 106, h: 160 }, photo: { w: 124, h: 140 }, scrap: { w: 146, h: 50 }, dossier: { w: 256, h: 182 }, marker: { w: 30, h: 30 } };
-        const min = L[n.type] || { w: 30, h: 30 };
-        let nW = transformStart.initialWidth, nH = transformStart.initialHeight, nX = transformStart.initialX, nY = transformStart.initialY;
-        if (transformStart.resizeMode === 'CORNER') {
-            const asp = transformStart.initialWidth / transformStart.initialHeight;
-            nW = Math.max(min.w, transformStart.initialWidth + lDx); nH = nW / asp; if (nH < min.h) { nH = min.h; nW = nH * asp; }
-        } else {
-            if (transformStart.resizeMode === 'RIGHT') nW = Math.max(min.w, transformStart.initialWidth + lDx);
-            else if (transformStart.resizeMode === 'LEFT') { nW = Math.max(min.w, transformStart.initialWidth - lDx); nX = transformStart.initialX + (transformStart.initialWidth - nW); }
-            else if (transformStart.resizeMode === 'BOTTOM') nH = Math.max(min.h, transformStart.initialHeight + lDy);
-            else if (transformStart.resizeMode === 'TOP') { nH = Math.max(min.h, transformStart.initialHeight - lDy); nY = transformStart.initialY + (transformStart.initialHeight - nH); }
-        }
-        setNotes(p => p.map(x => x.id === resizingId ? { ...x, width: nW, height: nH, x: nX, y: nY } : x)); return;
+
+    if (draggingId && lastDragPosRef.current) {
+        const dx = (e.clientX - lastDragPosRef.current.x) / view.zoom;
+        const dy = (e.clientY - lastDragPosRef.current.y) / view.zoom;
+        setNotes(prev => prev.map(n => {
+            if (n.id === draggingId || selectedIds.has(n.id)) { return { ...n, x: n.x + dx, y: n.y + dy }; }
+            return n;
+        }));
+        lastDragPosRef.current = { x: e.clientX, y: e.clientY };
+        return;
     }
-    // 旋转逻辑
-    if (rotatingId && transformStart) {
-        const dX = e.clientX - transformStart.mouseX;
-        setNotes(p => p.map(n => n.id === rotatingId ? { ...n, rotation: transformStart.initialRotation - (dX * 0.5) } : n)); return;
+     
+    if (pinDragData) { /* ... same pin logic ... */ isPinDragRef.current = true; const screenDx = e.clientX - pinDragData.startX; const screenDy = e.clientY - pinDragData.startY; const worldDx = screenDx / view.zoom; const worldDy = screenDy / view.zoom; const rad = -(pinDragData.rotation * Math.PI) / 180; const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad); let newPinX = pinDragData.initialPinX + localDx; let newPinY = pinDragData.initialPinY + localDy; newPinX = Math.max(0, Math.min(newPinX, pinDragData.width)); newPinY = Math.max(0, Math.min(newPinY, pinDragData.height)); setNotes(prev => prev.map(n => n.id === pinDragData.noteId ? { ...n, pinX: newPinX, pinY: newPinY } : n)); return; }
+    if (isPanning && lastMousePosRef.current) { const dx = e.clientX - lastMousePosRef.current.x; const dy = e.clientY - lastMousePosRef.current.y; setView(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy })); lastMousePosRef.current = { x: e.clientX, y: e.clientY }; return; }
+    if (rotatingId && transformStart) { const deltaX = e.clientX - transformStart.mouseX; const newRotation = transformStart.initialRotation - (deltaX * 0.5); setNotes(prev => prev.map(n => n.id === rotatingId ? { ...n, rotation: newRotation } : n)); return; }
+    
+    // 🟢 修复2：拉伸逻辑更新，强制限制最小宽高
+    if (resizingId && transformStart) { 
+        const note = notes.find(n => n.id === resizingId); 
+        if(!note) return; 
+        const mode = transformStart.resizeMode; 
+        const screenDx = e.clientX - transformStart.mouseX; 
+        const screenDy = e.clientY - transformStart.mouseY; 
+        const worldDx = screenDx / view.zoom; 
+        const worldDy = screenDy / view.zoom; 
+        const rad = -(transformStart.initialRotation * Math.PI) / 180; 
+        const localDx = worldDx * Math.cos(rad) - worldDy * Math.sin(rad); 
+        const localDy = worldDx * Math.sin(rad) + worldDy * Math.cos(rad);
+
+        // 🟢 定义所有类型的最小尺寸限制表
+        const MIN_DIMENSIONS: Record<string, { w: number, h: number }> = {
+            note: { w: 106, h: 160 },
+            photo: { w: 124, h: 140 },
+            scrap: { w: 146, h: 50 },
+            dossier: { w: 256, h: 224 },
+            marker: { w: 30, h: 30 },
+        };
+        // 获取当前便签的限制，如果没有则默认 50x50
+        const limits = MIN_DIMENSIONS[note.type] || { w: 50, h: 50 };
+
+        if (mode === 'CORNER') { 
+            const aspectRatio = transformStart.initialWidth / transformStart.initialHeight; 
+            const avgWidthChange = (-localDx + localDy * aspectRatio) / 2; 
+            let newWidth = Math.max(limits.w, transformStart.initialWidth + avgWidthChange); 
+            let newHeight = newWidth / aspectRatio; 
+            
+            // 如果高度小于限制，强行修正高度并反推宽度
+            if (newHeight < limits.h) {
+                newHeight = limits.h;
+                newWidth = newHeight * aspectRatio;
+            }
+
+            const widthChange = newWidth - transformStart.initialWidth; 
+            const heightChange = newHeight - transformStart.initialHeight; 
+            setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, scale: ['note','dossier','scrap'].includes(n.type) ? (newWidth/(transformStart.initialWidth/transformStart.initialScale)) : undefined, x: transformStart.initialX - (widthChange / 2), y: transformStart.initialY - (heightChange / 2) } : n)); 
+        } else { 
+            let newWidth = transformStart.initialWidth; 
+            let newHeight = transformStart.initialHeight; 
+            let newX = transformStart.initialX; 
+            let newY = transformStart.initialY; 
+            
+            if (mode === 'LEFT') { 
+                newWidth = Math.max(limits.w, transformStart.initialWidth - localDx); 
+                newX = transformStart.initialX + (transformStart.initialWidth - newWidth); 
+            } else if (mode === 'RIGHT') { 
+                newWidth = Math.max(limits.w, transformStart.initialWidth + localDx); 
+            } else if (mode === 'TOP') { 
+                // 🟢 向上拉伸：限制高度，并确保 Y 轴位置正确锁定
+                newHeight = Math.max(limits.h, transformStart.initialHeight - localDy); 
+                newY = (transformStart.initialY + transformStart.initialHeight) - newHeight;
+            } else if (mode === 'BOTTOM') { 
+                // 🟢 向下拉伸：限制高度
+                newHeight = Math.max(limits.h, transformStart.initialHeight + localDy); 
+            } 
+            setNotes(prev => prev.map(n => n.id === resizingId ? { ...n, width: newWidth, height: newHeight, x: newX, y: newY } : n)); 
+        } 
+        return;
     }
-    if (connectingNodeId) setMousePos(toWorld(e.clientX, e.clientY));
-  }, [draggingId, rotatingId, resizingId, selectionBox, view, notes, selectedIds, transformStart, pinDragData, isPanning, connectingNodeId, toWorld]);
+    const worldMouse = toWorld(e.clientX, e.clientY); if (connectingNodeId) setMousePos({ x: worldMouse.x, y: worldMouse.y }); 
+  }, [isPanning, draggingId, connectingNodeId, view, toWorld, rotatingId, resizingId, transformStart, pinDragData, notes, selectionBox, selectedIds, ghostNote]); 
 
   const handleMouseUp = () => {
-    const id = draggingId || resizingId || rotatingId || pinDragData?.noteId;
-    if (id) saveToCloud(notes.filter(n => n.id === id || selectedIds.has(n.id)), []);
-    setDraggingId(null); setResizingId(null); setRotatingId(null); setSelectionBox(null); setIsPanning(false); setPinDragData(null);
+    if (draggingId) {
+        const changedNotes = notes.filter(n => n.id === draggingId || selectedIds.has(n.id));
+        if (changedNotes.length > 0) saveToCloud(changedNotes, []);
+    }
+    if (resizingId || rotatingId || pinDragData) { const id = resizingId || rotatingId || pinDragData?.noteId; const note = notes.find(n => n.id === id); if (note) saveToCloud([note], []); }
+    setIsPanning(false); setDraggingId(null); setRotatingId(null); setResizingId(null); setTransformStart(null); setPinDragData(null); setSelectionBox(null); lastMousePosRef.current = null; lastDragPosRef.current = null;
   };
 
-  const handleBackgroundMouseDown = (e: React.MouseEvent) => {
-    if (isPinMode || connectingNodeId) { setConnectingNodeId(null); setIsPinMode(false); return; }
-    if (ghostNote && e.button === 0) { confirmGhostCreation(); return; }
-    // 鼠标中键 (button 1) 触发拖拽平移
-    if (e.button === 1 || isSpacePressed) { e.preventDefault(); setIsPanning(true); lastMousePosRef.current = { x: e.clientX, y: e.clientY }; }
-    // 鼠标左键 (button 0) 在背景处触发框选
-    else if (e.button === 0) { setSelectionBox({ startX: e.clientX, startY: e.clientY, currentX: e.clientX, currentY: e.clientY }); setSelectedIds(new Set()); }
+  const handlePinClick = (e: React.MouseEvent, id: string) => { 
+      e.stopPropagation(); 
+      if (isPinDragRef.current) { isPinDragRef.current = false; return; } 
+      if (isPinMode) { setIsPinMode(false); setConnectingNodeId(id); return; } 
+      if (connectingNodeId === null) { 
+          setConnectingNodeId(id); 
+      } else { 
+          if (connectingNodeId !== id) { 
+              const nextConns = [...connections]; 
+              const exists = nextConns.some(c => (c.sourceId === connectingNodeId && c.targetId === id) || (c.sourceId === id && c.targetId === connectingNodeId)); 
+              if (!exists) { 
+                  const newConn = { id: `c-${Date.now()}-${Math.random()}`, sourceId: connectingNodeId, targetId: id, color: '#D43939' }; 
+                  const finalConns = [...nextConns, newConn]; 
+                  setConnections(finalConns); 
+                  saveToCloud(notes, finalConns); 
+              } 
+          } 
+          setConnectingNodeId(null); 
+      } 
   };
 
-  // --- 5. 辅助功能 (BGM, File Drop, Ghost) ---
-  const confirmGhostCreation = () => {
-    if (!ghostNote) return;
-    const type = NOTE_TYPES[ghostNote.typeIndex], L: any = { note:[256,160], photo:[256,280], dossier:[256,224], scrap:[257,50], marker:[30,30] }, dims = L[type] || [200,200];
-    const newNode: Note = { id:`n-${Date.now()}`, type, content: type==='marker'?(notes.filter(n=>n.type==='marker').length+1).toString():'New Clue', x:ghostNote.x-dims[0]/2, y:ghostNote.y-dims[1]/2, zIndex:maxZIndex+1, rotation:0, hasPin:false, width:dims[0], height:dims[1], scale:1 };
-    setNotes(p=>[...p, newNode]); saveToCloud([newNode], []); setGhostNote(null);
-  };
-
+  const handleUpdateConnectionColor = (id: string, color: string) => { const nextConns = connections.map(c => c.id === id ? { ...c, color } : c); setConnections(nextConns); saveToCloud(notes, nextConns); };
+  const handleStartPinFromCorner = (id: string) => setIsPinMode(true);
+  const addNote = (type: Note['type']) => { const centerX = window.innerWidth / 2; const centerY = window.innerHeight / 2; const worldPos = toWorld(centerX, centerY); const x = worldPos.x + (Math.random() * 100 - 50); const y = worldPos.y + (Math.random() * 100 - 50); const id = `new-${Date.now()}`; let width = 256; let height = 160; if (type === 'photo') height = 280; else if (type === 'dossier') height = 224; else if (type === 'scrap') { width = 257; height = 50; } else if (type === 'marker') { width = 30; height = 30; } let content = 'New Clue'; if (type === 'photo') content = 'New Evidence'; else if (type === 'scrap') content = 'Scrap note...'; else if (type === 'marker') { const existingMarkers = notes.filter(n => n.type === 'marker'); content = (existingMarkers.length + 1).toString(); } const newNote: Note = { id, type, content, x, y, zIndex: maxZIndex + 1, rotation: (Math.random() * 10) - 5, fileId: type === 'photo' ? '/photo_1.png' : undefined, hasPin: false, scale: 1, width, height }; const nextNotes = [...notes, newNote]; setMaxZIndex(prev => prev + 1); setNotes(nextNotes); setSelectedIds(new Set([id])); saveToCloud(nextNotes, connections); };
+  const clearBoard = async () => { if(window.confirm("Burn all evidence?")) { setNotes([]); setConnections([]); await supabase.from('notes').delete().neq('id', '0'); await supabase.from('connections').delete().neq('id', '0'); } };
+  const handleDoubleClick = (id: string) => { if (!isPinMode && !connectingNodeId) setEditingNodeId(id); };
+  const handleSaveNote = (updatedNote: Note) => { setNotes(prev => prev.map(n => n.id === updatedNote.id ? updatedNote : n)); setEditingNodeId(null); saveToCloud([updatedNote], []); };
+  const getEditingNote = () => notes.find(n => n.id === editingNodeId);
+  const handleDragEnter = (e: React.DragEvent) => { e.preventDefault(); dragCounter.current += 1; if (e.dataTransfer.types.includes('Files')) setIsDraggingFile(true); };
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); dragCounter.current -= 1; if (dragCounter.current === 0) setIsDraggingFile(false); };
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); };
   const handleDrop = useCallback(async (e: React.DragEvent) => {
-    e.preventDefault(); setIsDraggingFile(false); dragCounter.current = 0; 
-    const files = Array.from(e.dataTransfer.files) as File[]; const images = files.filter(f => f.type.startsWith('image/')); 
-    if (images.length === 0) return;
-    const worldPos = toWorld(e.clientX, e.clientY);
-    const promises = images.map(async (file, i) => { 
-        const url = await uploadImage(file); if (!url) return null; 
-        return new Promise<Note>((res) => { 
-            const img = new Image(); img.src = url; img.onload = () => { 
-                const MAX_W = 300; let fw = img.width, fh = img.height; if (fw > MAX_W) { const r = MAX_W/fw; fw = MAX_W; fh = fh * r; }
-                res({ id:`ev-${Date.now()}-${i}`, type:'photo', content:file.name, fileId:url, x:worldPos.x + i*20, y:worldPos.y + i*20, zIndex:maxZIndex+i+1, rotation:(Math.random()*10)-5, hasPin:false, width:fw, height:fh, scale:1, board_id:activeBoardId }); 
-            }; 
-        }); 
-    });
-    const loaded = (await Promise.all(promises)).filter(n => n !== null) as Note[];
-    if (loaded.length > 0) { setMaxZIndex(prev => prev + loaded.length); setNotes(p => [...p, ...loaded]); saveToCloud(loaded, []); }
-  }, [maxZIndex, toWorld, activeBoardId]);
+    e.preventDefault(); setIsDraggingFile(false); dragCounter.current = 0; const files = Array.from(e.dataTransfer.files) as File[]; const imageFiles = files.filter(file => file.type.startsWith('image/')); if (imageFiles.length === 0) return;
+    let currentZ = maxZIndex; const worldPos = toWorld(e.clientX, e.clientY); const dropX = worldPos.x; const dropY = worldPos.y;
+    const promises = imageFiles.map(async (file, index) => { const driveFileId = await uploadImage(file); if (!driveFileId) return null; return new Promise<Note>((resolve) => { const img = new Image(); img.src = driveFileId; img.onload = () => { const MAX_WIDTH = 300; let finalWidth = img.width; let finalHeight = img.height; if (finalWidth > MAX_WIDTH) { const ratio = MAX_WIDTH / finalWidth; finalWidth = MAX_WIDTH; finalHeight = finalHeight * ratio; } if (finalWidth < 50) finalWidth = 50; if (finalHeight < 50) finalHeight = 50; currentZ++; resolve({ id: `evidence-${Date.now()}-${index}`, type: 'evidence', content: file.name, fileId: driveFileId, x: dropX - (finalWidth/2) + (index*20), y: dropY - (finalHeight/2) + (index*20), zIndex: currentZ, rotation: (Math.random()*10)-5, hasPin: false, width: finalWidth, height: finalHeight, scale: 1 }); }; }); });
+    const loadedNotes = (await Promise.all(promises)).filter(n => n !== null) as Note[]; if (loadedNotes.length > 0) { const newMaxZ = currentZ; setMaxZIndex(newMaxZ); const nextNotes = [...notes, ...loadedNotes]; setNotes(nextNotes); setSelectedIds(new Set([loadedNotes[0].id])); saveToCloud(loadedNotes, []); }
+  }, [maxZIndex, toWorld, notes, connections]);
 
+  const handleUpdateNodeSize = (id: string, width: number, height: number) => { if (resizingId === id) return; setNotes(prev => prev.map(n => n.id === id ? { ...n, width, height } : n)); };
+  const isUIHiddenRef = useRef(isUIHidden); useEffect(() => { isUIHiddenRef.current = isUIHidden; }, [isUIHidden]);
+  useEffect(() => { const t = setTimeout(() => { if (isUIHiddenRef.current) setShowHiddenModeToast(true); }, 1000); return () => clearTimeout(t); }, []); 
+  useEffect(() => { if (showHiddenModeToast) { const t = setTimeout(() => setShowHiddenModeToast(false), 3000); return () => clearTimeout(t); } }, [showHiddenModeToast]);
+  
+  // 🟢 修复3：自动播放音频
   useEffect(() => {
-    const playAtmosphere = () => { if(audioRef.current) audioRef.current.play().then(() => setIsMusicPlaying(true)).catch(() => {}); window.removeEventListener('click', playAtmosphere); };
-    window.addEventListener('click', playAtmosphere);
+    if (audioRef.current) {
+      audioRef.current.volume = 0.2; // 设置音量20%
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.then(() => setIsMusicPlaying(true))
+        .catch(error => {
+            console.log("Auto-play blocked by browser policy");
+            setIsMusicPlaying(false);
+            // 添加一次性点击监听器，用户交互后立即播放
+            const enableAudio = () => {
+                if(audioRef.current) {
+                    audioRef.current.play();
+                    setIsMusicPlaying(true);
+                    window.removeEventListener('click', enableAudio);
+                    window.removeEventListener('keydown', enableAudio);
+                }
+            };
+            window.addEventListener('click', enableAudio);
+            window.addEventListener('keydown', enableAudio);
+        });
+      }
+    }
   }, []);
 
+  const toggleMusic = () => { if (!audioRef.current) return; if (isMusicPlaying) { audioRef.current.pause(); setIsMusicPlaying(false); } else { audioRef.current.play().then(() => setIsMusicPlaying(true)); } };
+  useEffect(() => { const globalUp = () => handleMouseUp(); window.addEventListener('mouseup', globalUp); return () => window.removeEventListener('mouseup', globalUp); }, [isPanning, draggingId, rotatingId, resizingId, pinDragData, notes, connections, selectedIds, ghostNote]);
+
   return (
-    <div ref={boardRef} className={`w-screen h-screen relative overflow-hidden select-none bg-[#A38261] ${isPanning ? 'cursor-grab active:cursor-grabbing' : ''}`} 
-         style={{ backgroundImage: `url("${GRID_URL}")`, backgroundPosition: `${view.x}px ${view.y}px`, backgroundSize: `${30 * view.zoom}px ${30 * view.zoom}px`, backgroundRepeat: 'repeat' }}
-         onWheel={handleWheel} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseDown={handleBackgroundMouseDown}
-         onDrop={handleDrop} onDragOver={e => e.preventDefault()} onDragEnter={() => { dragCounter.current++; setIsDraggingFile(true); }} onDragLeave={() => { dragCounter.current--; if(dragCounter.current <= 0) setIsDraggingFile(false); }}
-         onDoubleClick={(e) => { if(e.target === boardRef.current) setGhostNote({ ...toWorld(e.clientX, e.clientY), typeIndex: 0 }); }}>
-      
-      <audio ref={audioRef} src="/home_bgm.mp3" loop />
+    <div ref={boardRef} className={`w-screen h-screen relative overflow-hidden select-none ${isSpacePressed || isPanning ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`} style={{ backgroundImage: `url("${GRID_URL}"), linear-gradient(180deg, #A38261 22.65%, #977049 100%)`, backgroundPosition: `${view.x}px ${view.y}px, 0 0`, backgroundSize: `${30 * view.zoom}px ${30 * view.zoom}px, 100% 100%`, backgroundRepeat: 'repeat, no-repeat', backgroundColor: '#A38261' }} onWheel={handleWheel} onMouseDown={handleBackgroundMouseDown} onMouseMove={handleMouseMove} onClick={handleBackgroundClick} onDoubleClick={handleBackgroundDoubleClick} onDrop={handleDrop} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver}>
+      <style>{`.animate-dash { stroke-dasharray: 8 4 !important; }`}</style>
+      {/* 🟢 修复4：添加 autoPlay 属性 */}
+      <audio ref={audioRef} src="/home_bgm.mp3" loop autoPlay />
+      {isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-3 bg-black/70 backdrop-blur-md text-white/90 px-4 py-2 rounded-full border border-white/10 shadow-lg pointer-events-none"><Loader2 className="animate-spin text-yellow-400" size={16} /><span className="font-mono text-xs tracking-wider">SYNCING...</span></div>}
+      {!isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-2 pointer-events-none opacity-50 hover:opacity-100 transition-opacity"><div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" /><span className="font-mono text-[10px] text-white/70 tracking-widest">SECURE CONN.</span></div>}
+       
+      {/* 提示 UI */}
+      <div className={`fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-full backdrop-blur-md border border-white/10 transition-opacity duration-500 pointer-events-none z-[13000] ${showHiddenModeToast ? 'opacity-100' : 'opacity-0'}`}>
+          <span className="font-mono text-xs">PRESS ESC TO SHOW UI</span>
+      </div>
 
-      {/* 全屏加载遮罩 */}
-      {isLoading && <div className="absolute inset-0 bg-black/40 backdrop-blur-sm z-[20001] flex items-center justify-center flex-col gap-4"><Loader2 className="animate-spin text-yellow-500" size={48} /><span className="text-white font-mono tracking-widest text-xs uppercase animate-pulse">Synchronizing Archives...</span></div>}
-      <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-full border border-white/10 transition-opacity z-[13000] pointer-events-none ${showHiddenModeToast ? 'opacity-100' : 'opacity-0'}`}>PRESS ESC TO REVEAL UI</div>
-
-      {/* 工具栏与多画板列表 (Stealth Mode 逻辑) */}
       {!isUIHidden && (
-        <>
-          <div className="absolute top-4 left-4 z-[9999] flex flex-col gap-3 w-64" onMouseDown={e => e.stopPropagation()}>
-            <div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg border border-white/10 shadow-2xl">
-              <h1 className="text-xl font-bold font-handwriting mb-3 text-red-500 flex items-center gap-2 uppercase tracking-tighter"><FolderKanban size={20}/> {boards.find(b => b.id === activeBoardId)?.name || 'CASE FILE'}</h1>
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                  {NOTE_TYPES.map(t => <button key={t} onClick={() => setGhostNote({ ...toWorld(window.innerWidth/2, window.innerHeight/2), typeIndex:NOTE_TYPES.indexOf(t)})} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-[10px] font-bold uppercase transition-colors">{t}</button>)}
-              </div>
-              <button onClick={() => setIsPinMode(!isPinMode)} className={`w-full mt-2 py-2 rounded text-xs font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black shadow-[0_0_15px_rgba(234,179,8,0.5)]' : 'bg-red-900/50 hover:bg-red-800'}`}>
-                <MapPin size={14} className="inline mr-1"/> {isPinMode ? 'PLACING PIN...' : 'ACTIVATE PIN TOOL'}
-              </button>
-            </div>
-
-            <div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg border border-white/10 shadow-2xl flex flex-col gap-2">
-              <div className="flex justify-between items-center border-b border-white/10 pb-2"><span className="text-[10px] font-mono text-gray-400 font-bold uppercase tracking-widest">Archives</span><button onClick={async () => { const id=`b-${Date.now()}`, b={id, name:`Case #${boards.length+1}`}; await supabase.from('boards').insert([b]); setBoards([...boards,b]); setActiveBoardId(id); }} className="p-1 hover:bg-yellow-500 rounded text-yellow-500 hover:text-black transition-colors"><Plus size={14}/></button></div>
-              <div className="max-h-60 overflow-y-auto flex flex-col gap-1 pr-1 custom-scrollbar">
-                {boards.map(b => (
-                  <div key={b.id} onClick={() => setActiveBoardId(b.id)} className={`flex items-center justify-between p-2 rounded group transition-all ${activeBoardId === b.id ? 'bg-yellow-500/20 border border-yellow-500/50' : 'hover:bg-white/5 border border-transparent cursor-pointer'}`}>
-                    {renamingBoardId === b.id ? <input autoFocus className="bg-transparent border-b border-yellow-500 outline-none text-xs w-full text-yellow-500" value={editBoardName} onChange={e => setEditBoardName(e.target.value)} onBlur={async () => { await supabase.from('boards').update({ name: editBoardName }).eq('id', renamingBoardId); setBoards(boards.map(x=>x.id===renamingBoardId?{...x,name:editBoardName}:x)); setRenamingBoardId(null); }}/> : <span className={`text-xs truncate ${activeBoardId === b.id ? 'text-yellow-500 font-bold' : 'text-gray-400'}`}>{b.name}</span>}
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); setRenamingBoardId(b.id); setEditBoardName(b.name); }} className="p-1 text-blue-400 hover:bg-blue-400/20 rounded"><Edit3 size={12}/></button><button onClick={async (e) => { e.stopPropagation(); if(boards.length>1 && window.confirm("Archive this case?")) { await supabase.from('boards').delete().eq('id', b.id); const rem=boards.filter(x=>x.id!==b.id); setBoards(rem); if(activeBoardId===b.id) setActiveBoardId(rem[0].id); } }} className="p-1 text-red-400 hover:bg-red-400/20 rounded"><Trash2 size={12}/></button></div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* 右侧全局控制 */}
-          <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2">
-              <div className="bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-xl overflow-hidden">
-                <button onClick={handleZoomIn} className="p-2 hover:bg-white/10 transition-colors"><Plus size={20}/></button>
-                <div className="text-[10px] font-mono py-1 w-full text-center border-y border-white/10">{Math.round(view.zoom * 100)}%</div>
-                <button onClick={handleZoomOut} className="p-2 hover:bg-white/10 transition-colors border-b border-white/10"><Minus size={20}/></button>
-                <button onClick={() => { if(audioRef.current) { if(isMusicPlaying) audioRef.current.pause(); else audioRef.current.play(); setIsMusicPlaying(!isMusicPlaying); } }} className="p-2 hover:bg-white/10">{isMusicPlaying ? <Volume2 size={20}/> : <VolumeX size={20}/>}</button>
-              </div>
-              <button onClick={handleResetView} className="bg-black/80 p-2 text-white rounded-lg border border-white/10 shadow-xl hover:bg-white/10 transition-colors"><LocateFixed size={20}/></button>
-              <button onClick={() => { setIsUIHidden(true); setShowHiddenModeToast(true); }} className="bg-black/80 p-2 text-white rounded-lg border border-white/10 shadow-xl hover:bg-white/10 transition-colors"><Maximize size={20}/></button>
-          </div>
-        </>
+        <div 
+          className="absolute top-4 left-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto"
+          // 🟢 修复3：阻止事件冒泡，修复按钮点击无效问题
+          onMouseDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-float border border-white/10 max-w-sm"><h1 className="text-xl font-bold font-handwriting mb-1 text-red-500">CASE #2023-X</h1><div className="flex flex-col gap-2"><button onClick={() => setIsPinMode(!isPinMode)} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600'}`}><MapPin size={16} /> {isPinMode ? 'DONE' : 'PIN TOOL'}</button><div className="grid grid-cols-2 gap-2 mt-2"><button onClick={() => addNote('note')} className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs">Add Note</button><button onClick={() => addNote('photo')} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button><button onClick={() => addNote('dossier')} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button><button onClick={() => addNote('scrap')} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button><button onClick={() => addNote('marker')} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button><button onClick={clearBoard} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1"><Trash2 size={12}/> Clear</button></div></div></div>
+        </div>
       )}
 
-      {/* 文件拖拽提示层 */}
-      {isDraggingFile && <div className="absolute inset-0 bg-black/60 z-[10000] flex items-center justify-center border-8 border-dashed border-gray-400 m-4 rounded-xl pointer-events-none animate-pulse"><div className="flex flex-col items-center gap-4 text-white"><UploadCloud size={64} className="text-blue-400"/><h2 className="text-2xl font-bold uppercase tracking-widest">Release to Upload Clue</h2></div></div>}
+      {!isUIHidden && <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-auto cursor-auto"><div className="bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-float"><button onClick={handleZoomIn} className="p-2 hover:bg-white/10 rounded-t-lg transition-colors"><Plus size={20} /></button><div className="text-xs font-mono py-1 w-12 text-center border-y border-white/10 select-none">{Math.round(view.zoom * 100)}%</div><button onClick={handleZoomOut} className="p-2 hover:bg-white/10 border-b border-white/10 transition-colors"><Minus size={20} /></button><button onClick={toggleMusic} className="p-2 hover:bg-white/10 rounded-b-lg transition-colors" title={isMusicPlaying ? "Mute Music" : "Play Music"}>{isMusicPlaying ? <Volume2 size={20} /> : <VolumeX size={20} />}</button></div><div className="bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-float"><button onClick={handleResetView} className="p-2 hover:bg-white/10 rounded-t-lg border-b border-white/10 transition-colors" title="Reset View"><LocateFixed size={20} /></button><button onClick={() => { setIsUIHidden(true); }} className="p-2 hover:bg-white/10 rounded-b-lg transition-colors" title="Hide UI"><Maximize size={20} /></button></div></div>}
+      {connectingNodeId && !isUIHidden && <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[9999] bg-red-600 text-white px-6 py-2 rounded-full shadow-xl animate-bounce font-bold pointer-events-none">Connecting Evidence...</div>}
+      {isDraggingFile && <div className="absolute inset-0 bg-black/60 z-[10000] flex items-center justify-center border-8 border-dashed border-gray-400 m-4 rounded-xl pointer-events-none"><div className="bg-gray-800 text-white px-8 py-6 rounded-xl shadow-2xl flex flex-col items-center gap-4 animate-bounce"><UploadCloud size={64} className="text-blue-400"/><h2 className="text-2xl font-bold uppercase tracking-widest">Drop Evidence File</h2></div></div>}
 
-      {/* 画布核心层 */}
-      <div className="absolute top-0 left-0 w-0 h-0" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, transformOrigin: '0 0' }}>
+      {/* 🟢 选框层 */}
+      {selectionBox && (
+          <div style={{ position: 'absolute', left: Math.min(selectionBox.startX, selectionBox.currentX), top: Math.min(selectionBox.startY, selectionBox.currentY), width: Math.abs(selectionBox.currentX - selectionBox.startX), height: Math.abs(selectionBox.currentY - selectionBox.startY), backgroundColor: 'rgba(59, 130, 246, 0.2)', border: '1px solid #3b82f6', zIndex: 9999, pointerEvents: 'none' }} />
+      )}
+
+      <div className="absolute top-0 left-0 w-0 h-0 overflow-visible pointer-events-none" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, transformOrigin: '0 0' }}>
           {notes.map((note) => (
-            <DetectiveNode key={note.id} note={note} onMouseDown={handleNodeMouseDown} isSelected={selectedIds.has(note.id)} onDoubleClick={() => setEditingNodeId(note.id)} 
-                           isPinMode={isPinMode} isConnecting={!!connectingNodeId} isSelectedForConnection={connectingNodeId === note.id}
-                           onResizeStart={(e, m) => { e.stopPropagation(); setResizingId(note.id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth: note.width || 200, initialHeight: note.height || 200, initialX: note.x, initialY: note.y, initialScale: 1, resizeMode: m }); }} 
-                           onRotateStart={(e) => { e.stopPropagation(); setRotatingId(note.id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth: 0, initialHeight: 0, initialX: 0, initialY: 0, initialScale: 1 }); }} 
-                           onDelete={() => handleDeleteNote(note.id)} />
+            <DetectiveNode
+              key={note.id}
+              note={note}
+              onMouseDown={handleNodeMouseDown}
+              onDoubleClick={handleDoubleClick}
+              isConnecting={!!connectingNodeId}
+              isSelectedForConnection={connectingNodeId === note.id}
+              isPinMode={isPinMode}
+              isSelected={selectedIds.has(note.id)}
+              isMultiSelected={selectedIds.size > 1} 
+              onDelete={() => handleDeleteNote(note.id)}
+              onStartPin={() => handleStartPinFromCorner(note.id)}
+              onResize={handleUpdateNodeSize}
+              onRotateStart={(e) => handleRotateStart(e, note.id)}
+              onResizeStart={(e, mode) => handleResizeStart(e, note.id, mode)}
+            />
           ))}
-          <ConnectionLayer connections={connections} notes={notes} connectingNodeId={connectingNodeId} mousePos={mousePos} 
-            onPinMouseDown={(e, id) => {
-              e.stopPropagation(); const n = notes.find(x => x.id === id); if(!n) return; const { width, height } = getNoteDimensions(n);
-              setPinDragData({ noteId: id, startX: e.clientX, startY: e.clientY, initialPinX: n.pinX || width/2, initialPinY: n.pinY || 10, rotation: n.rotation, width, height });
-            }} onPinClick={(e, id) => { e.stopPropagation(); if(!isPinDragRef.current) setConnectingNodeId(connectingNodeId === id ? null : id); }} />
-          
-          {/* Ghost 预览 UI */}
+          <ConnectionLayer connections={connections} notes={notes} connectingNodeId={connectingNodeId} mousePos={mousePos} onDeleteConnection={handleDeleteConnection} onPinClick={handlePinClick} isPinMode={isPinMode} onConnectionColorChange={handleUpdateConnectionColor} onPinMouseDown={handlePinMouseDown} />
+           
+          {/* 🟢 幽灵模式的可视化预览 */}
           {ghostNote && (() => {
-              const t = NOTE_TYPES[ghostNote.typeIndex], s: any = { note:'border-yellow-500 bg-yellow-500/20 text-yellow-500', photo:'border-gray-400 bg-gray-500/20 text-gray-400', dossier:'border-orange-600 bg-orange-600/20 text-orange-600', scrap:'border-stone-400 bg-stone-400/20 text-stone-400', marker:'border-blue-500 bg-blue-500/20 text-blue-500' };
+              const currentType = NOTE_TYPES[ghostNote.typeIndex];
+              // 定义样式映射
+              const previewStyles: Record<string, { color: string, icon: React.ReactNode }> = {
+                  note: { color: 'border-yellow-500 bg-yellow-500/20 text-yellow-500', icon: <StickyNote size={48} /> },
+                  photo: { color: 'border-gray-400 bg-gray-500/20 text-gray-400', icon: <ImageIcon size={48} /> },
+                  dossier: { color: 'border-orange-600 bg-orange-600/20 text-orange-600', icon: <Folder size={48} /> },
+                  scrap: { color: 'border-stone-400 bg-stone-400/20 text-stone-400', icon: <FileText size={48} /> },
+                  marker: { color: 'border-blue-500 bg-blue-500/20 text-blue-500', icon: <MapPin size={48} /> },
+              };
+              const style = previewStyles[currentType] || previewStyles.note;
+
               return (
-                <div style={{ position:'absolute', left:ghostNote.x, top:ghostNote.y, transform:'translate(-50%, -50%)', zIndex:20000 }} className="pointer-events-none">
-                    <div className={`w-24 h-24 rounded-full border-4 flex flex-col items-center justify-center shadow-2xl backdrop-blur-sm animate-pulse ${s[t]}`}><span className="text-[10px] font-bold uppercase">{t}</span></div>
-                    <div className="mt-4 px-3 py-1 bg-black/80 rounded text-[9px] text-white/50 border border-white/10 uppercase tracking-widest text-center">Wheel to switch • Enter to place</div>
-                </div>
+                  <div style={{ position: 'absolute', left: ghostNote.x, top: ghostNote.y, transform: 'translate(-50%, -50%)', zIndex: 20000, pointerEvents: 'none' }}>
+                      <div className="flex flex-col items-center justify-center animate-in fade-in zoom-in duration-200">
+                          {/* 动态圆圈 + 动态图标 */}
+                          <div className={`w-24 h-24 rounded-full border-4 flex items-center justify-center shadow-2xl backdrop-blur-sm transition-all duration-300 ${style.color}`}>
+                              {style.icon}
+                          </div>
+                          {/* 类型标签 */}
+                          <div className={`mt-4 px-4 py-1 rounded-full font-bold uppercase tracking-widest text-sm border bg-black/80 backdrop-blur-md transition-colors duration-300 ${style.color.replace('bg-', 'border-').replace('/20', '/50')}`}>
+                              {currentType}
+                          </div>
+                          {/* 操作提示 */}
+                          <div className="mt-2 text-white/50 text-[10px] font-mono flex items-center gap-1">
+                              <MousePointer2 size={10}/> SCROLL / ARROWS
+                          </div>
+                      </div>
+                  </div>
               );
           })()}
 
-          {/* 数值实时反馈浮层 */}
-          {(draggingId || resizingId || rotatingId || pinDragData) && interactionRef.current.notes.find(n => n.id === (draggingId || resizingId || rotatingId || pinDragData?.noteId)) && (() => {
-            const n = interactionRef.current.notes.find(i => i.id === (draggingId || resizingId || rotatingId || pinDragData?.noteId))!;
-            let text = `X:${Math.round(n.x)} Y:${Math.round(n.y)}`;
-            if (rotatingId) text = `${Math.round(n.rotation)}°`; if (resizingId) text = `W:${Math.round(n.width || 0)} H:${Math.round(n.height || 0)}`; if (pinDragData) text = `Pin: ${Math.round(n.pinX||0)}, ${Math.round(n.pinY||0)}`;
-            return <div style={{ position:'absolute', left:n.x, top:n.y-35, width:n.width||200 }} className="flex justify-center z-[99999]"><div className="bg-black/90 text-white text-[10px] font-mono px-2 py-1 rounded shadow-lg backdrop-blur border border-white/10 pointer-events-none">{text}</div></div>
+          {draggingId && selectedIds.size <= 1 && (() => { const n = notes.find(i => i.id === draggingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">X: {Math.round(n.x)}, Y: {Math.round(n.y)}</div></div> })()}
+          {rotatingId && (() => { const n = notes.find(i => i.id === rotatingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{Math.round(n.rotation)}°</div></div> })()}
+           
+          {/* 🟢 拉伸数值显示 */}
+          {resizingId && transformStart && (() => {
+             const n = notes.find(i => i.id === resizingId); if (!n) return null;
+             const isTextType = ['note', 'dossier', 'scrap'].includes(n.type);
+             let text = '';
+             if (transformStart.resizeMode === 'CORNER' && isTextType) text = `${Math.round((n.scale || 1) * 100)}%`;
+             else text = `W: ${Math.round(n.width || 0)} H: ${Math.round(n.height || 0)}`;
+             return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{text}</div></div>
+          })()}
+           
+          {pinDragData && (() => {
+             const n = notes.find(i => i.id === pinDragData.noteId);
+             if (!n) return null;
+             return (
+               <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]">
+                 <div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">
+                   Pin X: {Math.round(n.pinX ?? 0)}, Pin Y: {Math.round(n.pinY ?? 0)}
+                 </div>
+               </div>
+             );
           })()}
       </div>
-
-      {editingNodeId && notes.find(n=>n.id===editingNodeId) && <EditModal note={notes.find(n=>n.id===editingNodeId)!} onSave={(u) => { setNotes(prev=>prev.map(n=>n.id===u.id?u:n)); setEditingNodeId(null); saveToCloud([u],[]); }} onClose={() => setEditingNodeId(null)} />}
-      {/* 框选视觉反馈 */}
-      {selectionBox && <div className="absolute border border-blue-500 bg-blue-500/20 pointer-events-none z-[9999]" style={{ left: Math.min(selectionBox.startX, selectionBox.currentX), top: Math.min(selectionBox.startY, selectionBox.currentY), width: Math.abs(selectionBox.currentX - selectionBox.startX), height: Math.abs(selectionBox.currentY - selectionBox.startY) }} />}
+      {editingNodeId && getEditingNote() && <EditModal note={getEditingNote()!} onSave={handleSaveNote} onClose={() => setEditingNodeId(null)} />}
     </div>
   );
 };
