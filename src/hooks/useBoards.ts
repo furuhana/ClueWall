@@ -12,42 +12,41 @@ export const useBoards = (
     useEffect(() => {
         // Initial Fetch
         const fetchBoards = async () => {
-            console.log("正在获取画板列表...");
+            console.log("🔥 正在从数据库抓取画板列表...");
             const { data, error } = await supabase.from('boards').select('*').order('created_at', { ascending: true });
+
+            console.log("🔥 正在从数据库抓取画板列表:", data);
 
             if (data) {
                 setBoards(data);
                 // If we have boards, try to set the first one as active if none is selected
                 if (data.length > 0) {
-                    // We don't overwrite currentBoardId if it's already set (though on mount it's null)
-                    // But strictly speaking, we just put them in state first.
-                    // The logic to select default is handled separately or immediately here.
-                    // Let's stick to: if we have data, use it.
                     if (!currentBoardId) setCurrentBoardId(data[0].id);
                 }
-            }
+                // ONLY if data is empty, create default.
+                else {
+                    console.log("未发现画板，正在创建默认画板...");
+                    const defaultId = `case-${Date.now()}`;
+                    const defaultBoard = {
+                        id: defaultId,
+                        name: 'Main Case'
+                    };
 
-            // ONLY if data is empty (and no error generally, or just empty list), create default.
-            if (!data || data.length === 0) {
-                console.log("未发现画板，正在创建默认画板...");
-                const defaultId = `case-${Date.now()}`;
-                const defaultBoard = {
-                    id: defaultId,
-                    name: 'Main Case'
-                };
+                    try {
+                        const { data: newBoard, error: insertError } = await supabase.from('boards').insert([defaultBoard]).select();
 
-                try {
-                    const { data: newBoard, error: insertError } = await supabase.from('boards').insert([defaultBoard]).select();
-
-                    if (newBoard && newBoard.length > 0) {
-                        setBoards(newBoard);
-                        setCurrentBoardId(newBoard[0].id);
-                    } else if (insertError) {
-                        console.error("Default board creation failed:", insertError);
+                        if (newBoard && newBoard.length > 0) {
+                            setBoards(newBoard);
+                            setCurrentBoardId(newBoard[0].id);
+                        } else if (insertError) {
+                            console.error("Default board creation failed:", insertError);
+                        }
+                    } catch (e) {
+                        console.error("Critical error creating default board:", e);
                     }
-                } catch (e) {
-                    console.error("Critical error creating default board:", e);
                 }
+            } else if (error) {
+                console.error("Error fetching boards:", error);
             }
         };
 
