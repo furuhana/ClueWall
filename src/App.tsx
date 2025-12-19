@@ -68,7 +68,7 @@ const App: React.FC = () => {
   
   const toWorld = useCallback((screenX: number, screenY: number) => ({ x: (screenX - view.x) / view.zoom, y: (screenY - view.y) / view.zoom }), [view]);
 
-  // --- 🟢 还原：音乐控制逻辑 ---
+  // --- 🟢 音乐控制逻辑 ---
   const toggleMusic = () => {
     if (!audioRef.current) return;
     if (isMusicPlaying) {
@@ -87,7 +87,6 @@ const App: React.FC = () => {
         playPromise.then(() => {
           setIsMusicPlaying(true);
         }).catch(() => {
-          // 浏览器阻止自动播放，添加一次性点击监听
           const enableAudio = () => {
             if (audioRef.current) {
               audioRef.current.play().then(() => setIsMusicPlaying(true));
@@ -225,6 +224,7 @@ const App: React.FC = () => {
     e.stopPropagation(); 
     if (ghostNote) { setGhostNote(null); return; }
 
+    // 🟢 模式 1：连线模式 (当 connectingNodeId 存在时)
     if (connectingNodeId && connectingNodeId !== id) {
         const target = notes.find(n => n.id === id); if (!target) return;
         const rect = e.currentTarget.getBoundingClientRect();
@@ -241,6 +241,7 @@ const App: React.FC = () => {
         return;
     }
 
+    // 🟢 模式 2：图钉模式 (左上角按钮激活后)
     if (isPinMode) {
         const target = notes.find(n => n.id === id); if (!target) return;
         const rect = e.currentTarget.getBoundingClientRect();
@@ -251,7 +252,7 @@ const App: React.FC = () => {
         const updated = { ...target, hasPin: true, pinX, pinY };
         setNotes(notes.map(n => n.id === id ? updated : n));
         saveToCloud([updated], []);
-        setIsPinMode(false);
+        setIsPinMode(false); // 放置完自动退出模式
         return;
     }
 
@@ -385,7 +386,6 @@ const App: React.FC = () => {
          onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}
          onDoubleClick={(e) => { if(e.target === boardRef.current) setGhostNote({ ...toWorld(e.clientX, e.clientY), typeIndex: 0 }); }}>
       
-      {/* 🟢 还原：背景音频标签 */}
       <audio ref={audioRef} src="/home_bgm.mp3" loop />
 
       {/* 左上角 UI：工具集 + 画板列表 */}
@@ -434,14 +434,13 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* 🟢 右上角控制：包含音乐切换按钮 */}
+      {/* 右上角控制：包含音乐切换按钮 */}
       {!isUIHidden && (
         <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2">
             <div className="bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-xl">
               <button onClick={handleZoomIn} className="p-2 border-b border-white/10 hover:bg-white/10 transition-colors"><Plus size={20}/></button>
               <div className="text-[10px] font-mono py-1">{Math.round(view.zoom * 100)}%</div>
               <button onClick={handleZoomOut} className="p-2 border-b border-white/10 hover:bg-white/10 transition-colors"><Minus size={20}/></button>
-              {/* 🟢 还原：音乐控制按钮 */}
               <button onClick={toggleMusic} className="p-2 hover:bg-white/10 transition-colors">
                 {isMusicPlaying ? <Volume2 size={20} /> : <VolumeX size={20} />}
               </button>
@@ -454,11 +453,20 @@ const App: React.FC = () => {
       {/* 画布核心 */}
       <div className="absolute top-0 left-0 w-0 h-0" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, transformOrigin: '0 0' }}>
           {notes.map((note) => (
-            <DetectiveNode key={note.id} note={note} onMouseDown={handleNodeMouseDown} isSelected={selectedIds.has(note.id)} 
-                           onDoubleClick={() => setEditingNodeId(note.id)} 
-                           onResizeStart={(e, m) => { e.stopPropagation(); setResizingId(note.id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth: note.width || 200, initialHeight: note.height || 200, initialX: note.x, initialY: note.y, initialScale: 1, resizeMode: m }); }} 
-                           onRotateStart={(e) => { e.stopPropagation(); setRotatingId(note.id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth: 0, initialHeight: 0, initialX: 0, initialY: 0, initialScale: 1 }); }} 
-                           onDelete={() => handleDeleteNote(note.id)} />
+            <DetectiveNode 
+              key={note.id} 
+              note={note} 
+              onMouseDown={handleNodeMouseDown} 
+              isSelected={selectedIds.has(note.id)} 
+              onDoubleClick={() => setEditingNodeId(note.id)} 
+              // 🟢 关键：补齐这两个属性，让节点感知图钉和连线模式
+              isPinMode={isPinMode}
+              isConnecting={!!connectingNodeId}
+              isSelectedForConnection={connectingNodeId === note.id}
+              onResizeStart={(e, m) => { e.stopPropagation(); setResizingId(note.id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth: note.width || 200, initialHeight: note.height || 200, initialX: note.x, initialY: note.y, initialScale: 1, resizeMode: m }); }} 
+              onRotateStart={(e) => { e.stopPropagation(); setRotatingId(note.id); setTransformStart({ mouseX: e.clientX, mouseY: e.clientY, initialRotation: note.rotation, initialWidth: 0, initialHeight: 0, initialX: 0, initialY: 0, initialScale: 1 }); }} 
+              onDelete={() => handleDeleteNote(note.id)} 
+            />
           ))}
           <ConnectionLayer connections={connections} notes={notes} connectingNodeId={connectingNodeId} mousePos={mousePos} onPinMouseDown={handlePinMouseDown} onPinClick={handlePinClick} />
           
