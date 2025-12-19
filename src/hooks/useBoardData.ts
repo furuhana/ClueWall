@@ -15,7 +15,9 @@ export const useBoardData = (
   // 实时订阅
   useEffect(() => {
     const fetchInitialData = async () => {
+      console.log("当前加载的画板ID:", activeBoardId);
       // 1. Query Filter
+
       const { data: notesData } = await supabase.from('notes').select('*').eq('board_id', activeBoardId);
       const { data: connsData } = await supabase.from('connections').select('*').eq('board_id', activeBoardId);
 

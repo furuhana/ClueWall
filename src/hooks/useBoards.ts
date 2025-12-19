@@ -12,13 +12,24 @@ export const useBoards = (
     useEffect(() => {
         // Initial Fetch
         const fetchBoards = async () => {
+            console.log("正在获取画板列表...");
             const { data, error } = await supabase.from('boards').select('*').order('created_at', { ascending: true });
 
-            if (data && data.length > 0) {
+            if (data) {
                 setBoards(data);
-                if (!currentBoardId) setCurrentBoardId(data[0].id);
-            } else {
-                // If no boards, create default
+                // If we have boards, try to set the first one as active if none is selected
+                if (data.length > 0) {
+                    // We don't overwrite currentBoardId if it's already set (though on mount it's null)
+                    // But strictly speaking, we just put them in state first.
+                    // The logic to select default is handled separately or immediately here.
+                    // Let's stick to: if we have data, use it.
+                    if (!currentBoardId) setCurrentBoardId(data[0].id);
+                }
+            }
+
+            // ONLY if data is empty (and no error generally, or just empty list), create default.
+            if (!data || data.length === 0) {
+                console.log("未发现画板，正在创建默认画板...");
                 const defaultId = `case-${Date.now()}`;
                 const defaultBoard = {
                     id: defaultId,

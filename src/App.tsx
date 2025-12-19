@@ -128,6 +128,12 @@ const App: React.FC = () => {
 
     // 3. Board Data (Board Isolation)
     const activeBoardId = currentBoardId || 'loading-board';
+
+    // Diagnostic: Verify global board ID update
+    useEffect(() => {
+        console.log("Global activeBoardId updated to:", activeBoardId);
+    }, [activeBoardId]);
+
     const {
         notes, setNotes, connections, setConnections, isLoading,
         maxZIndex, setMaxZIndex, saveToCloud,
