@@ -12,43 +12,49 @@ export const useBoards = (
     useEffect(() => {
         // Initial Fetch
         const fetchBoards = async () => {
-            console.log("🔥 正在从数据库抓取画板列表...");
+            console.log("🔥 [Init] 开始从数据库加载画板...");
             const { data, error } = await supabase.from('boards').select('*').order('created_at', { ascending: true });
 
-            console.log("🔥 数据库返回画板数据:", data);
+            if (error) {
+                console.error("🔥 [Init] 获取画板失败:", error);
+                // Alert is intrusive on reload, maybe just log unless critical
+                console.log("Database fetch error, check console.");
+                return;
+            }
+
+            console.log("🔥 [Init] 数据库返回:", data);
 
             if (data && data.length > 0) {
+                // Case A: Data exists
                 setBoards(data);
-                // Aggressively set current ID to avoid 'loading-board' state
-                // We trust that if we have no ID yet, we take the first one.
+                // Force select the first one if we don't have one selected
                 setCurrentBoardId(prev => prev || data[0].id);
-            }
-            else if (data && data.length === 0) {
-                // Only create default if TRULY empty
-                console.log("未发现画板，正在创建默认画板...");
-                const defaultId = `case-${Date.now()}`;
+                console.log("🔥 [Init] 已自动选中画板:", data[0].id);
+            } else {
+                // Case B: Zero data -> Create Default
+                console.log("🔥 [Init] 数据库为空，正在创建初始档案库...");
                 const defaultBoard = {
-                    id: defaultId,
-                    name: 'Main Case'
+                    id: 'main-case',
+                    name: '档案库 01'
                 };
 
                 try {
-                    const { data: newBoard, error: insertError } = await supabase.from('boards').insert([defaultBoard]).select();
+                    const { data: newBoard, error: insertError } = await supabase
+                        .from('boards')
+                        .insert([defaultBoard])
+                        .select();
 
-                    if (newBoard && newBoard.length > 0) {
+                    if (insertError) {
+                        console.error("🔥 [Init] 创建默认画板失败:", insertError);
+                        alert("无法自动创建初始画板，请检查数据库权限 (RLS).");
+                    } else if (newBoard && newBoard.length > 0) {
+                        console.log("🔥 [Init] 初始画板创建成功:", newBoard[0]);
                         setBoards(newBoard);
                         setCurrentBoardId(newBoard[0].id);
-                    } else if (insertError) {
-                        console.error("Default board creation failed:", insertError);
                     }
                 } catch (e) {
-                    console.error("Critical error creating default board:", e);
+                    console.error("🔥 [Init] 严重错误:", e);
                 }
-            }
-
-            if (error) {
-                console.error("Error fetching boards (Full Object):", error, JSON.stringify(error, null, 2));
-                alert("无法加载画板数据，请检查网络或权限。错误详情请看控制台。");
             }
         };
 
@@ -60,29 +66,24 @@ export const useBoards = (
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'boards' },
                 (payload) => {
-                    console.log('Realtime change received!', payload);
-
+                    console.log('Realtime update:', payload);
                     if (payload.eventType === 'INSERT') {
                         const newBoard = payload.new as Board;
                         setBoards(prev => {
                             if (prev.some(b => b.id === newBoard.id)) return prev;
                             const next = [...prev, newBoard];
-                            setCurrentBoardId(cid => cid || newBoard.id);
                             return next;
                         });
+                        // If no board selected, select the new one
+                        setCurrentBoardId(curr => curr || newBoard.id);
                     } else if (payload.eventType === 'UPDATE') {
                         const updatedBoard = payload.new as Board;
                         setBoards(prev => prev.map(b => b.id === updatedBoard.id ? updatedBoard : b));
                     } else if (payload.eventType === 'DELETE') {
                         const deletedId = payload.old.id;
-                        setBoards(prev => {
-                            const nextBoards = prev.filter(b => b.id !== deletedId);
-                            return nextBoards;
-                        });
-                        setCurrentBoardId(prevId => {
-                            if (prevId === deletedId) return null;
-                            return prevId;
-                        });
+                        setBoards(prev => prev.filter(b => b.id !== deletedId));
+                        // If current board deleted, clear ID to trigger fail-safe or reload
+                        setCurrentBoardId(curr => (curr === deletedId ? null : curr));
                     }
                 }
             )
@@ -91,12 +92,12 @@ export const useBoards = (
         return () => {
             supabase.removeChannel(channel);
         };
-    }, []); // Run once on mount
+    }, []);
 
-    // Safety: If currentBoardId becomes null (e.g. deleted via realtime) but boards exist, select first one.
+    // Fail-safe: If currentBoardId is null but we have boards, pick the first one.
     useEffect(() => {
         if (!currentBoardId && boards.length > 0) {
-            console.log("Detected null ID with existing boards, switching to:", boards[0].id);
+            console.log("🔥 [Fail-safe] 发现 ID 为空但有数据，自动选第一个");
             setCurrentBoardId(boards[0].id);
         }
     }, [currentBoardId, boards]);
@@ -108,113 +109,84 @@ export const useBoards = (
             name: `New Case #${boards.length + 1}`
         };
 
-        console.log("Attempting to add board:", newBoardPayload);
-
         try {
             const { data, error } = await supabase.from('boards').insert([newBoardPayload]).select();
 
             if (error) {
-                console.error("Supabase INSERT error:", error);
-                alert("数据库错误: " + error.message);
+                console.error("Add board error:", error);
+                alert("创建失败: " + error.message);
                 return;
             }
 
-            const createdBoard = (data && data.length > 0) ? data[0] : newBoardPayload;
-
-            setBoards(prev => {
-                if (prev.some(b => b.id === createdBoard.id)) return prev;
-                return [...prev, createdBoard];
-            });
-
-            setCurrentBoardId(createdBoard.id);
-
-            if (onBoardSwitch) onBoardSwitch();
-
+            if (data && data.length > 0) {
+                const created = data[0];
+                setBoards(prev => {
+                    if (prev.some(b => b.id === created.id)) return prev;
+                    return [...prev, created];
+                });
+                setCurrentBoardId(created.id);
+                if (onBoardSwitch) onBoardSwitch();
+            }
         } catch (e: any) {
-            console.error("Unexpected error in addBoard:", e);
-            alert("Unexpected Error: " + e.message);
+            console.error("Add board exception:", e);
         }
     }, [boards, onBoardSwitch]);
 
     const renameBoard = useCallback(async (id: string, newName: string) => {
+        // Optimistic
         setBoards(prev => prev.map(b => b.id === id ? { ...b, name: newName } : b));
 
         const { error } = await supabase.from('boards').update({ name: newName }).eq('id', id);
         if (error) {
-            console.error("Rename failed", error);
-            alert("Rename failed: " + error.message);
+            console.error("Rename failed:", error);
+            // Revert or alert? Alert for now.
+            alert("Rename failed in DB: " + error.message);
         }
     }, []);
 
     const deleteBoard = useCallback(async (id: string) => {
-        if (!window.confirm("Are you sure? This will PERMANENTLY delete this case and ALL its evidence?")) return;
+        if (!window.confirm("CONFIRM DELETE? This will destroy all evidence in this case.")) return;
 
         try {
-            const { error: notesError } = await supabase.from('notes').delete().eq('board_id', id);
-            if (notesError) console.warn("Notes delete warning:", notesError);
-
-            const { error: connsError } = await supabase.from('connections').delete().eq('board_id', id);
-            if (connsError) console.warn("Connections delete warning:", connsError);
+            // Manual cascade delete because we aren't sure if DB has cascade set
+            await supabase.from('notes').delete().eq('board_id', id);
+            await supabase.from('connections').delete().eq('board_id', id);
 
             const { error } = await supabase.from('boards').delete().eq('id', id);
             if (error) throw error;
 
             setBoards(prev => {
-                const nextBoards = prev.filter(b => b.id !== id);
+                const next = prev.filter(b => b.id !== id);
                 if (currentBoardId === id) {
-                    const nextId = nextBoards.length > 0 ? nextBoards[0].id : null;
-                    if (nextId) setCurrentBoardId(nextId);
-                    else window.location.reload();
+                    if (next.length > 0) setCurrentBoardId(next[0].id);
+                    else setCurrentBoardId(null); // Will likely trigger empty state or wait for new one
                 }
-                return nextBoards;
+                return next;
             });
-
         } catch (e: any) {
             console.error("Delete failed:", e);
             alert("Delete failed: " + e.message);
         }
     }, [currentBoardId]);
 
-    // Update Board ID
     const updateBoardId = useCallback(async (oldId: string, newId: string): Promise<boolean> => {
         if (!newId || newId === oldId) return false;
 
         try {
-            // 1. Database Update
             const { error } = await supabase.from('boards').update({ id: newId }).eq('id', oldId);
+            if (error) throw error;
 
-            if (error) {
-                console.error("Update ID DB Error:", error);
-                throw error;
-            }
-
-            // 2. Local State Update
             setBoards(prev => prev.map(b => b.id === oldId ? { ...b, id: newId } : b));
-
-            // 3. Switch Active Context if needed
             if (currentBoardId === oldId) {
                 setCurrentBoardId(newId);
             }
-
-            // alert("ID Updated Successfully!");
             return true;
-
         } catch (e: any) {
             console.error("Update ID failed:", e);
-            alert("Update ID failed (可能是ID重复或数据库限制): " + e.message);
+            alert("Update ID Failed: " + e.message);
             return false;
         }
     }, [currentBoardId]);
-
-    return {
-        boards,
-        currentBoardId,
-        setCurrentBoardId,
-        addBoard,
-        renameBoard,
-        deleteBoard,
-        updateBoardId
-    };
 
     return {
         boards,
