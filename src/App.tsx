@@ -549,7 +549,7 @@ const App: React.FC = () => {
             if (!profile) {
                 // ANOMALY DETECTED: User exists in Auth but not in Profiles.
                 console.error("⛔ Security Alert: User has no profile record.");
-                alert("账号异常，请联系管理员");
+                alert("账号未激活或未登记，请联系管理员。");
                 await supabase.auth.signOut();
                 setSession(null);
                 return;

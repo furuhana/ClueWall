@@ -35,32 +35,7 @@ const Login: React.FC = () => {
         }
     };
 
-    const handleSignUp = async () => {
-        setLoading(true);
-        setErrorMsg(null);
 
-        try {
-            const { data, error } = await supabase.auth.signUp({
-                email,
-                password,
-            });
-
-            if (error) throw error;
-
-            console.log("Sign up successful/initiated:", data);
-            if (data.session) {
-                alert("Account created and logged in!");
-            } else if (data.user) {
-                // If email confirmation is enabled
-                alert("Account created! Please check your email for confirmation.");
-            }
-        } catch (error: any) {
-            console.error("Sign up failed:", error);
-            setErrorMsg(error.message || "Registration failed");
-        } finally {
-            setLoading(false);
-        }
-    };
 
     return (
         <div className="login-container">
@@ -102,15 +77,6 @@ const Login: React.FC = () => {
                         disabled={loading}
                     >
                         {loading ? 'Authenticating...' : 'Secure Login'}
-                    </button>
-
-                    <button
-                        type="button"
-                        className="auth-button btn-secondary"
-                        onClick={handleSignUp}
-                        disabled={loading}
-                    >
-                        Register New Agent
                     </button>
                 </form>
             </div>
