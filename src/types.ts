@@ -30,3 +30,9 @@ export interface DragOffset {
   x: number;
   y: number;
 }
+
+export interface Board {
+  id: string;
+  name: string;
+  created_at?: string;
+}

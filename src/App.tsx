@@ -5,7 +5,7 @@ import ConnectionLayer from './components/ConnectionLayer';
 import EditModal from './components/EditModal';
 import {
     Trash2, MapPin, UploadCloud, Plus, Minus, Volume2, VolumeX, LocateFixed, Maximize, Loader2, MousePointer2,
-    StickyNote, Image as ImageIcon, Folder, FileText
+    StickyNote, Image as ImageIcon, Folder, FileText, ChevronRight, Archive, PlusSquare
 } from 'lucide-react';
 
 // Hooks
@@ -16,6 +16,7 @@ import { usePinning } from './hooks/usePinning';
 import { useStealthMode } from './hooks/useStealthMode';
 import { useAudio } from './hooks/useAudio';
 import { useFileDrop } from './hooks/useFileDrop';
+import { useBoards } from './hooks/useBoards';
 
 const GRID_URL = "data:image/svg+xml,%3Csvg width='30' height='30' viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='30' height='30' fill='none' stroke='%23CAB9A1' stroke-width='0.7' opacity='0.3'/%3E%3C/svg%3E";
 
@@ -23,22 +24,26 @@ const App: React.FC = () => {
     // 1. Interaction Ref for Conflict Resolution
     const interactionRef = useRef<{ draggingId: string | null; resizingId: string | null; rotatingId: string | null }>({ draggingId: null, resizingId: null, rotatingId: null });
 
-    // 2. Board Data (Board Isolation)
-    const [activeBoardId] = useState('case-2023-x'); // Default Board ID
+    // 2. Boards Management
+    const { boards, currentBoardId, setCurrentBoardId, addBoard, renameBoard, deleteBoard } = useBoards();
+
+    // 3. Board Data (Board Isolation)
+    // Use 'default' as fallback to avoid queries before boards load
+    const activeBoardId = currentBoardId || 'loading-board';
     const {
         notes, setNotes, connections, setConnections, isLoading,
         maxZIndex, setMaxZIndex, saveToCloud,
         handleDeleteNote: dataDeleteNote, handleDeleteConnection, clearBoard, updateNote
     } = useBoardData(activeBoardId, interactionRef);
 
-    // 3. Canvas View
+    // 4. Canvas View
     const {
         view, setView, isPanning, toWorld,
         handleZoomIn, handleZoomOut, handleResetView, handleWheel,
         startPan, updatePan, stopPan, cancelAnimation
     } = useCanvasView();
 
-    // 4. Pinning & Connections
+    // 5. Pinning & Connections
     const {
         connectingNodeId, setConnectingNodeId,
         pinDragData, setPinDragData,
@@ -47,7 +52,7 @@ const App: React.FC = () => {
         handlePinClick, handleStartPinFromCorner, handleNodeClickForPin
     } = usePinning(notes, setNotes, connections, setConnections, saveToCloud, view, toWorld);
 
-    // 5. Interactions
+    // 6. Interactions
     const {
         draggingId, setDraggingId,
         rotatingId, setRotatingId,
@@ -68,7 +73,7 @@ const App: React.FC = () => {
         interactionRef.current = { draggingId, resizingId, rotatingId };
     }, [draggingId, resizingId, rotatingId]);
 
-    // 6. Stealth Mode & Audio
+    // 7. Stealth Mode & Audio
     const handleResetInteractions = useCallback(() => {
         setConnectingNodeId(null);
         setIsPinMode(false);
@@ -79,25 +84,26 @@ const App: React.FC = () => {
         setSelectedIds(new Set());
     }, [setConnectingNodeId, setIsPinMode, setSelectionBox, setDraggingId, setRotatingId, setResizingId, setSelectedIds]);
 
-    // Added Ctrl+U support inside Hook, but we pass reset callback
     const { isUIHidden, setIsUIHidden, showHiddenModeToast } = useStealthMode(handleResetInteractions);
     const { isMusicPlaying, toggleMusic, audioRef } = useAudio();
 
-    // 7. File Drop
+    // 8. File Drop
     const { isDraggingFile, handleDragEnter, handleDragLeave, handleDragOver, handleDrop } = useFileDrop(toWorld, setNotes, maxZIndex, setMaxZIndex, saveToCloud);
 
-    // 8. Local State & Wrappers
+    // 9. Local State & Wrappers
     const boardRef = useRef<HTMLDivElement>(null);
     const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
     const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const [isSpacePressed, setIsSpacePressed] = useState(false);
+
+    // Sidebar State
+    const [showSidebar, setShowSidebar] = useState(false);
 
     const handleDeleteNoteWrapper = (id: string) => {
         if (connectingNodeId === id) setConnectingNodeId(null);
         dataDeleteNote(id);
     };
 
-    // Helper to add note from UI (Moved from Monolithic App.tsx)
     const addNote = (type: Note['type']) => {
         const centerX = window.innerWidth / 2;
         const centerY = window.innerHeight / 2;
@@ -105,24 +111,20 @@ const App: React.FC = () => {
         const x = worldPos.x + (Math.random() * 100 - 50);
         const y = worldPos.y + (Math.random() * 100 - 50);
         const id = `new-${Date.now()}`;
-
         let width = 256; let height = 160;
         if (type === 'photo') height = 280;
         else if (type === 'dossier') height = 224;
         else if (type === 'scrap') { width = 257; height = 50; }
         else if (type === 'marker') { width = 30; height = 30; }
-
         let content = 'New Clue';
         if (type === 'photo') content = 'New Evidence';
         else if (type === 'scrap') content = 'Scrap note...';
         else if (type === 'marker') { const existingMarkers = notes.filter(n => n.type === 'marker'); content = (existingMarkers.length + 1).toString(); }
-
         const newNote: Note = {
             id, type, content, x, y,
             zIndex: maxZIndex + 1, rotation: (Math.random() * 10) - 5,
-            fileId: type === 'photo' ? '/photo_1.png' : undefined, hasPin: false, scale: 1, width, height
+            fileId: type === 'photo' ? '/photo_1.png' : undefined, hasPin: false, scale: 1, width, height, board_id: activeBoardId
         };
-
         const nextNotes = [...notes, newNote];
         setMaxZIndex(prev => prev + 1);
         setNotes(nextNotes);
@@ -133,10 +135,6 @@ const App: React.FC = () => {
     // Global Key Handling
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // NOTE: Ctrl+U and Escape are handled in useStealthMode now, BUT Escape for canceling interactions
-            // might overlap. useStealthMode calls handleResetInteractions if UI is visible.
-
-            // Ghost Mode Arrows
             if (ghostNote) {
                 if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
                     setGhostNote(prev => prev ? { ...prev, typeIndex: (prev.typeIndex + 1) % NOTE_TYPES.length } : null);
@@ -151,46 +149,35 @@ const App: React.FC = () => {
                     return;
                 }
             }
-
-            // Delete
             if (e.key === 'Delete' || e.key === 'Backspace') {
                 if (editingNodeId) return;
-
                 if (connectingNodeId) {
-                    // Logic to cancel connection logic or delete specific connecting node? 
-                    // Original code logic:
                     const nextNotes = notes.map(n => n.id === connectingNodeId ? { ...n, hasPin: false } : n);
                     const nextConns = connections.filter(c => c.sourceId !== connectingNodeId && c.targetId !== connectingNodeId);
                     setNotes(nextNotes);
                     setConnections(nextConns);
                     setConnectingNodeId(null);
                     setSelectedIds(new Set());
-
                     const changedNote = nextNotes.find(n => n.id === connectingNodeId);
                     if (changedNote) saveToCloud([changedNote], []);
-
                     const deletedConns = connections.filter(c => c.sourceId === connectingNodeId || c.targetId === connectingNodeId);
                     deletedConns.forEach(c => handleDeleteConnection(c.id));
                     return;
                 }
-
                 if (selectedIds.size > 0) {
                     const idsArray = Array.from(selectedIds);
                     idsArray.forEach(id => handleDeleteNoteWrapper(id));
                     setSelectedIds(new Set());
                 }
             }
-
             if (e.code === 'Space' && !e.repeat) setIsSpacePressed(true);
         };
-
         const handleKeyUp = (e: KeyboardEvent) => {
             if (e.code === 'Space') {
                 setIsSpacePressed(false);
                 stopPan();
             }
         };
-
         window.addEventListener('keydown', handleKeyDown);
         window.addEventListener('keyup', handleKeyUp);
         return () => {
@@ -220,7 +207,6 @@ const App: React.FC = () => {
             e.preventDefault();
             startPan(e.clientX, e.clientY);
         }
-
         if (!isPanning && !selectionBox && e.target === boardRef.current && !ghostNote) {
             setConnectingNodeId(null);
             setIsPinMode(false);
@@ -231,7 +217,6 @@ const App: React.FC = () => {
         if (isPanning) updatePan(e.clientX, e.clientY);
         else if (pinDragData) handlePinMove(e);
         else handleInteractionMouseMove(e);
-
         if (connectingNodeId) {
             const worldMouse = toWorld(e.clientX, e.clientY);
             setMousePos({ x: worldMouse.x, y: worldMouse.y });
@@ -308,7 +293,39 @@ const App: React.FC = () => {
                     onMouseDown={(e) => e.stopPropagation()}
                     onDoubleClick={(e) => e.stopPropagation()}
                 >
-                    <div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-float border border-white/10 max-w-sm"><h1 className="text-xl font-bold font-handwriting mb-1 text-red-500">CASE #2023-X</h1><div className="flex flex-col gap-2"><button onClick={() => setIsPinMode(!isPinMode)} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600'}`}><MapPin size={16} /> {isPinMode ? 'DONE' : 'PIN TOOL'}</button><div className="grid grid-cols-2 gap-2 mt-2"><button onClick={() => addNote('note')} className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs">Add Note</button><button onClick={() => addNote('photo')} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button><button onClick={() => addNote('dossier')} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button><button onClick={() => addNote('scrap')} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button><button onClick={() => addNote('marker')} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button><button onClick={clearBoard} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1"><Trash2 size={12} /> Clear</button></div></div></div>
+                    <div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-float border border-white/10 max-w-sm transition-all duration-300">
+
+                        {/* Sidebar / Case Header */}
+                        <div className="flex items-center justify-between mb-4 border-b border-white/10 pb-2">
+                            <div className="flex items-center gap-2 cursor-pointer hover:text-yellow-400" onClick={() => setShowSidebar(!showSidebar)}>
+                                <Archive size={16} />
+                                <h1 className="text-xl font-bold font-handwriting text-red-500">{boards.find(b => b.id === activeBoardId)?.name || 'Loading Case...'}</h1>
+                                <ChevronRight size={16} className={`transform transition-transform ${showSidebar ? 'rotate-90' : ''}`} />
+                            </div>
+                        </div>
+
+                        {/* Expandable Case List */}
+                        {showSidebar && (
+                            <div className="mb-4 max-h-48 overflow-y-auto border-b border-white/10 pb-2">
+                                {boards.map(board => (
+                                    <div
+                                        key={board.id}
+                                        className={`flex items-center justify-between px-2 py-1 rounded text-sm cursor-pointer ${board.id === activeBoardId ? 'bg-red-900/40 text-red-200' : 'hover:bg-white/5 text-gray-400'}`}
+                                        onClick={() => setCurrentBoardId(board.id)}
+                                    >
+                                        <span>{board.name}</span>
+                                        {board.id === activeBoardId && <span className="text-[10px] uppercase font-bold text-red-500">Active</span>}
+                                    </div>
+                                ))}
+                                <button onClick={addBoard} className="w-full mt-2 flex items-center justify-center gap-2 py-1 border border-dashed border-gray-600 rounded text-xs text-gray-400 hover:text-white hover:border-gray-400">
+                                    <PlusSquare size={12} /> New Case File
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Tools */}
+                        <div className="flex flex-col gap-2"><button onClick={() => setIsPinMode(!isPinMode)} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600'}`}><MapPin size={16} /> {isPinMode ? 'DONE' : 'PIN TOOL'}</button><div className="grid grid-cols-2 gap-2 mt-2"><button onClick={() => addNote('note')} className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs">Add Note</button><button onClick={() => addNote('photo')} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button><button onClick={() => addNote('dossier')} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button><button onClick={() => addNote('scrap')} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button><button onClick={() => addNote('marker')} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button><button onClick={clearBoard} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1"><Trash2 size={12} /> Clear</button></div></div>
+                    </div>
                 </div>
             )}
 
@@ -372,7 +389,6 @@ const App: React.FC = () => {
 
                 {draggingId && selectedIds.size <= 1 && (() => { const n = notes.find(i => i.id === draggingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">X: {Math.round(n.x)}, Y: {Math.round(n.y)}</div></div> })()}
                 {rotatingId && (() => { const n = notes.find(i => i.id === rotatingId); if (!n) return null; return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{Math.round(n.rotation)}°</div></div> })()}
-
                 {resizingId && transformStart && (() => {
                     const n = notes.find(i => i.id === resizingId); if (!n) return null;
                     const isTextType = ['note', 'dossier', 'scrap'].includes(n.type);
@@ -381,7 +397,6 @@ const App: React.FC = () => {
                     else text = `W: ${Math.round(n.width || 0)} H: ${Math.round(n.height || 0)}`;
                     return <div style={{ position: 'absolute', left: n.x, top: n.y - 35, width: n.width || 256 }} className="flex justify-center z-[99999]"><div className="bg-black/80 text-white text-xs font-mono px-2 py-1 rounded shadow-lg backdrop-blur pointer-events-none whitespace-nowrap">{text}</div></div>
                 })()}
-
                 {pinDragData && (() => {
                     const n = notes.find(i => i.id === pinDragData.noteId);
                     if (!n) return null;
