@@ -96,12 +96,11 @@ export const useBoards = (
     }, []);
 
     const deleteBoard = useCallback(async (id: string) => {
-        if (!window.confirm("Are you sure? This will delete all evidence in this case!")) return;
+        if (!window.confirm("Are you sure? This will PERMANENTLY delete this case and ALL its evidence?")) return;
 
         try {
             // Note: If 'ON DELETE CASCADE' is not set in DB, we must manually delete children
             const { error: notesError } = await supabase.from('notes').delete().eq('board_id', id);
-            // Ignore notes error if they just didn't exist, but helpful to log
             if (notesError) console.warn("Notes delete warning:", notesError);
 
             const { error: connsError } = await supabase.from('connections').delete().eq('board_id', id);
@@ -110,28 +109,35 @@ export const useBoards = (
             const { error } = await supabase.from('boards').delete().eq('id', id);
             if (error) throw error;
 
-            const nextBoards = boards.filter(b => b.id !== id);
-            setBoards(nextBoards);
+            setBoards(prev => {
+                const nextBoards = prev.filter(b => b.id !== id);
 
-            // If deleted board was active, switch to another one
-            if (currentBoardId === id) {
-                const nextId = nextBoards.length > 0 ? nextBoards[0].id : null;
-                setCurrentBoardId(nextId);
-            }
+                // If deleted board was active, switch to another one immediately
+                if (currentBoardId === id) {
+                    const nextId = nextBoards.length > 0 ? nextBoards[0].id : null;
+                    if (nextId) setCurrentBoardId(nextId);
+                    else {
+                        // If no boards left, logically we should create a new default one, 
+                        // but for now we just let the UI handle empty state or the useEffect to re-fetch/create.
+                        // Or reload page.
+                        window.location.reload();
+                    }
+                }
+                return nextBoards;
+            });
+
         } catch (e: any) {
             console.error("Delete failed:", e);
             alert("Delete failed: " + e.message);
         }
-    }, [boards, currentBoardId]);
+    }, [currentBoardId]); // removed 'boards' dependency to avoid stale closure issues if setBoards updater is used correctly
 
-    // NEW: Update Board ID
+    // Update Board ID
     const updateBoardId = useCallback(async (oldId: string, newId: string) => {
         if (!newId || newId === oldId) return;
 
         try {
             // 1. Database Update
-            // WARNING: This requires foreign key constraints to be configured with 'ON UPDATE CASCADE'
-            // If not, this might fail or orphan the records.
             const { error } = await supabase.from('boards').update({ id: newId }).eq('id', oldId);
 
             if (error) {

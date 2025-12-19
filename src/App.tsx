@@ -5,7 +5,7 @@ import ConnectionLayer from './components/ConnectionLayer';
 import EditModal from './components/EditModal';
 import {
     Trash2, MapPin, UploadCloud, Plus, Minus, Volume2, VolumeX, LocateFixed, Maximize, Loader2, MousePointer2,
-    StickyNote, Image as ImageIcon, Folder, FileText, ChevronRight, Archive, PlusSquare, Shield, Edit3, Settings, X
+    StickyNote, Image as ImageIcon, Folder, FileText, ChevronRight, Archive, PlusSquare, Shield, Edit3, Settings, X, AlertTriangle
 } from 'lucide-react';
 
 // Hooks
@@ -19,6 +19,102 @@ import { useFileDrop } from './hooks/useFileDrop';
 import { useBoards } from './hooks/useBoards';
 
 const GRID_URL = "data:image/svg+xml,%3Csvg width='30' height='30' viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='30' height='30' fill='none' stroke='%23CAB9A1' stroke-width='0.7' opacity='0.3'/%3E%3C/svg%3E";
+
+// --- Extracted Components to avoid re-creation issues ---
+
+interface SettingsModalProps {
+    isOpen: boolean;
+    board: Board | null;
+    onClose: () => void;
+    onUpdateId: (oldId: string, newId: string) => Promise<void>;
+    onDelete: (id: string) => Promise<void>;
+}
+
+const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, board, onClose, onUpdateId, onDelete }) => {
+    // We use a local state for the input, sync it when board changes
+    const [tempId, setTempId] = useState('');
+
+    useEffect(() => {
+        if (board) setTempId(board.id);
+    }, [board]);
+
+    if (!isOpen || !board) return null;
+
+    return (
+        <div
+            className="fixed inset-0 z-[20000] bg-black/60 backdrop-blur-sm flex items-center justify-center pointer-events-auto"
+            onClick={(e) => {
+                // Close if clicking the background
+                if (e.target === e.currentTarget) onClose();
+            }}
+        >
+            <div className="bg-[#1a1a1a] border border-white/20 p-6 rounded-lg shadow-2xl w-96 text-gray-200 animate-in fade-in zoom-in duration-200">
+                <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-2">
+                    <h2 className="text-xl font-bold font-handwriting text-red-500 flex items-center gap-2">
+                        <Settings size={18} /> Case Configuration
+                    </h2>
+                    <button onClick={onClose} className="hover:text-white transition-colors p-1 rounded hover:bg-white/10">
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <div className="space-y-6">
+                    {/* Info Section */}
+                    <div>
+                        <label className="block text-xs uppercase tracking-widest text-gray-500 mb-1">Current Case Name</label>
+                        <div className="text-white font-mono text-lg">{board.name}</div>
+                    </div>
+
+                    {/* ID Edit Section */}
+                    <div>
+                        <label className="block text-xs uppercase tracking-widest text-gray-500 mb-1">Board ID (Database Key)</label>
+                        <input
+                            type="text"
+                            value={tempId}
+                            onChange={(e) => setTempId(e.target.value)}
+                            className="w-full bg-black/50 border border-white/10 rounded px-2 py-2 font-mono text-sm focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition-all"
+                            placeholder="Enter new ID..."
+                        />
+                        <div className="flex items-start gap-2 mt-2 px-2 py-1 bg-red-900/20 rounded border border-red-900/30 text-red-300">
+                            <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
+                            <p className="text-[10px] leading-tight">
+                                Changing the ID requires DB foreign keys to be set to <code>ON UPDATE CASCADE</code>. Otherwise, evidence links may break.
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex gap-2 border-t border-white/10 pt-4">
+                        <button
+                            onClick={async () => {
+                                if (tempId !== board.id) {
+                                    await onUpdateId(board.id, tempId);
+                                }
+                                onClose();
+                            }}
+                            className="flex-1 bg-blue-900/50 hover:bg-blue-800 text-blue-100 py-2 rounded text-xs font-bold uppercase tracking-wider transition-colors"
+                        >
+                            Save Changes
+                        </button>
+                    </div>
+
+                    {/* Delete Section */}
+                    <div className="pt-2">
+                        <button
+                            onClick={async () => {
+                                await onDelete(board.id);
+                                onClose();
+                            }}
+                            className="w-full border border-red-900/50 hover:bg-red-900/20 text-red-500 hover:text-red-400 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+                        >
+                            <Trash2 size={14} /> Delete This Case
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const App: React.FC = () => {
     // 1. Interaction Ref for Conflict Resolution
@@ -39,7 +135,6 @@ const App: React.FC = () => {
     } = useBoardData(activeBoardId, interactionRef);
 
     // 4. Canvas View
-    // DESTUCTURING: Ensure all necessary functions are extracted to avoid ReferenceErrors
     const {
         view, setView, isPanning, toWorld,
         handleZoomIn, handleZoomOut, handleResetView, handleWheel,
@@ -264,61 +359,6 @@ const App: React.FC = () => {
         handleNodeMouseDown(e, id, isSpacePressed, isPinMode, connectingNodeId);
     };
 
-    // Board Settings Component (Internal)
-    const BoardSettingsModal = () => {
-        if (!isSettingsModalOpen || !settingsTargetBoard) return null;
-        const [tempId, setTempId] = useState(settingsTargetBoard.id);
-
-        return (
-            <div className="fixed inset-0 z-[20000] bg-black/60 backdrop-blur-sm flex items-center justify-center pointer-events-auto">
-                <div className="bg-[#1a1a1a] border border-white/20 p-6 rounded-lg shadow-2xl w-96 text-gray-200">
-                    <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-xl font-bold font-handwriting text-red-500">Case Configuration</h2>
-                        <button onClick={() => setIsSettingsModalOpen(false)} className="hover:text-white"><X size={20} /></button>
-                    </div>
-
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-xs uppercase tracking-widest text-gray-500 mb-1">Case Name</label>
-                            <div className="text-white font-mono">{settingsTargetBoard.name}</div>
-                        </div>
-
-                        <div>
-                            <label className="block text-xs uppercase tracking-widest text-gray-500 mb-1">Board ID (Database Key)</label>
-                            <input
-                                type="text"
-                                value={tempId}
-                                onChange={(e) => setTempId(e.target.value)}
-                                className="w-full bg-black/50 border border-white/10 rounded px-2 py-1 font-mono text-sm focus:border-red-500 outline-none"
-                            />
-                            <p className="text-[10px] text-red-400 mt-1">WARNING: Changing ID requires DB Cascade Support. May cause data loss if not configured.</p>
-                        </div>
-
-                        <div className="flex gap-2 pt-2">
-                            <button
-                                onClick={async () => {
-                                    if (tempId !== settingsTargetBoard.id) {
-                                        await updateBoardId(settingsTargetBoard.id, tempId);
-                                    }
-                                    setIsSettingsModalOpen(false);
-                                }}
-                                className="flex-1 bg-red-900/50 hover:bg-red-800 text-red-100 py-2 rounded text-xs font-bold uppercase tracking-wider"
-                            >
-                                Save Changes
-                            </button>
-                            <button
-                                onClick={() => setIsSettingsModalOpen(false)}
-                                className="px-4 py-2 bg-white/5 hover:bg-white/10 rounded text-xs uppercase tracking-wider"
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
-    };
-
     return (
         <div
             ref={boardRef}
@@ -349,7 +389,14 @@ const App: React.FC = () => {
                 <span className="font-mono text-xs">PRESS ESC TO SHOW UI</span>
             </div>
 
-            <BoardSettingsModal />
+            {/* Modal is now pure component, passed necessary props */}
+            <SettingsModal
+                isOpen={isSettingsModalOpen}
+                board={settingsTargetBoard}
+                onClose={() => setIsSettingsModalOpen(false)}
+                onUpdateId={updateBoardId}
+                onDelete={deleteBoard}
+            />
 
             {!isUIHidden && (
                 <div
