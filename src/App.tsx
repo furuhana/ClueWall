@@ -1,11 +1,11 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
-import { Note } from './types';
+import { Note, Board } from './types';
 import DetectiveNode from './components/DetectiveNode';
 import ConnectionLayer from './components/ConnectionLayer';
 import EditModal from './components/EditModal';
 import {
     Trash2, MapPin, UploadCloud, Plus, Minus, Volume2, VolumeX, LocateFixed, Maximize, Loader2, MousePointer2,
-    StickyNote, Image as ImageIcon, Folder, FileText, ChevronRight, Archive, PlusSquare, Shield, Edit3
+    StickyNote, Image as ImageIcon, Folder, FileText, ChevronRight, Archive, PlusSquare, Shield, Edit3, Settings, X
 } from 'lucide-react';
 
 // Hooks
@@ -25,7 +25,10 @@ const App: React.FC = () => {
     const interactionRef = useRef<{ draggingId: string | null; resizingId: string | null; rotatingId: string | null }>({ draggingId: null, resizingId: null, rotatingId: null });
 
     // 2. Boards Management
-    const { boards, currentBoardId, setCurrentBoardId, addBoard, renameBoard, deleteBoard } = useBoards();
+    const {
+        boards, currentBoardId, setCurrentBoardId,
+        addBoard, renameBoard, deleteBoard, updateBoardId
+    } = useBoards();
 
     // 3. Board Data (Board Isolation)
     const activeBoardId = currentBoardId || 'loading-board';
@@ -36,6 +39,7 @@ const App: React.FC = () => {
     } = useBoardData(activeBoardId, interactionRef);
 
     // 4. Canvas View
+    // DESTUCTURING: Ensure all necessary functions are extracted to avoid ReferenceErrors
     const {
         view, setView, isPanning, toWorld,
         handleZoomIn, handleZoomOut, handleResetView, handleWheel,
@@ -98,6 +102,10 @@ const App: React.FC = () => {
     // Sidebar State
     const [showSidebar, setShowSidebar] = useState(false);
 
+    // NEW: Board Settings UI State
+    const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+    const [settingsTargetBoard, setSettingsTargetBoard] = useState<Board | null>(null);
+
     const handleDeleteNoteWrapper = (id: string) => {
         if (connectingNodeId === id) setConnectingNodeId(null);
         dataDeleteNote(id);
@@ -149,7 +157,7 @@ const App: React.FC = () => {
                 }
             }
             if (e.key === 'Delete' || e.key === 'Backspace') {
-                if (editingNodeId) return;
+                if (editingNodeId || isSettingsModalOpen) return; // Disable delete during modal
                 if (connectingNodeId) {
                     const nextNotes = notes.map(n => n.id === connectingNodeId ? { ...n, hasPin: false } : n);
                     const nextConns = connections.filter(c => c.sourceId !== connectingNodeId && c.targetId !== connectingNodeId);
@@ -183,11 +191,11 @@ const App: React.FC = () => {
             window.removeEventListener('keydown', handleKeyDown);
             window.removeEventListener('keyup', handleKeyUp);
         };
-    }, [ghostNote, editingNodeId, connectingNodeId, selectedIds, notes, connections, dataDeleteNote, handleDeleteConnection, setNotes, setConnections, setConnectingNodeId, setSelectedIds, saveToCloud, confirmGhostCreation, stopPan, NOTE_TYPES]);
+    }, [ghostNote, editingNodeId, connectingNodeId, selectedIds, notes, connections, dataDeleteNote, handleDeleteConnection, setNotes, setConnections, setConnectingNodeId, setSelectedIds, saveToCloud, confirmGhostCreation, stopPan, NOTE_TYPES, isSettingsModalOpen]);
 
     // Input Handlers
     const handleMainWheel = (e: React.WheelEvent) => {
-        if (editingNodeId) return;
+        if (editingNodeId || isSettingsModalOpen) return;
         if (ghostNote) {
             const direction = e.deltaY > 0 ? 1 : -1;
             setGhostNote(prev => {
@@ -256,6 +264,61 @@ const App: React.FC = () => {
         handleNodeMouseDown(e, id, isSpacePressed, isPinMode, connectingNodeId);
     };
 
+    // Board Settings Component (Internal)
+    const BoardSettingsModal = () => {
+        if (!isSettingsModalOpen || !settingsTargetBoard) return null;
+        const [tempId, setTempId] = useState(settingsTargetBoard.id);
+
+        return (
+            <div className="fixed inset-0 z-[20000] bg-black/60 backdrop-blur-sm flex items-center justify-center pointer-events-auto">
+                <div className="bg-[#1a1a1a] border border-white/20 p-6 rounded-lg shadow-2xl w-96 text-gray-200">
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-xl font-bold font-handwriting text-red-500">Case Configuration</h2>
+                        <button onClick={() => setIsSettingsModalOpen(false)} className="hover:text-white"><X size={20} /></button>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-xs uppercase tracking-widest text-gray-500 mb-1">Case Name</label>
+                            <div className="text-white font-mono">{settingsTargetBoard.name}</div>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs uppercase tracking-widest text-gray-500 mb-1">Board ID (Database Key)</label>
+                            <input
+                                type="text"
+                                value={tempId}
+                                onChange={(e) => setTempId(e.target.value)}
+                                className="w-full bg-black/50 border border-white/10 rounded px-2 py-1 font-mono text-sm focus:border-red-500 outline-none"
+                            />
+                            <p className="text-[10px] text-red-400 mt-1">WARNING: Changing ID requires DB Cascade Support. May cause data loss if not configured.</p>
+                        </div>
+
+                        <div className="flex gap-2 pt-2">
+                            <button
+                                onClick={async () => {
+                                    if (tempId !== settingsTargetBoard.id) {
+                                        await updateBoardId(settingsTargetBoard.id, tempId);
+                                    }
+                                    setIsSettingsModalOpen(false);
+                                }}
+                                className="flex-1 bg-red-900/50 hover:bg-red-800 text-red-100 py-2 rounded text-xs font-bold uppercase tracking-wider"
+                            >
+                                Save Changes
+                            </button>
+                            <button
+                                onClick={() => setIsSettingsModalOpen(false)}
+                                className="px-4 py-2 bg-white/5 hover:bg-white/10 rounded text-xs uppercase tracking-wider"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div
             ref={boardRef}
@@ -285,6 +348,8 @@ const App: React.FC = () => {
             <div className={`fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-full backdrop-blur-md border border-white/10 transition-opacity duration-500 pointer-events-none z-[13000] ${showHiddenModeToast ? 'opacity-100' : 'opacity-0'}`}>
                 <span className="font-mono text-xs">PRESS ESC TO SHOW UI</span>
             </div>
+
+            <BoardSettingsModal />
 
             {!isUIHidden && (
                 <div
@@ -318,13 +383,17 @@ const App: React.FC = () => {
                                         </div>
 
                                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            {/* Permission (Placeholder) */}
+                                            {/* Configuration (New) */}
                                             <button
-                                                className="p-1 hover:text-white text-gray-600 cursor-not-allowed"
-                                                onClick={(e) => { e.stopPropagation(); }}
-                                                title="Permissions (Coming Soon)"
+                                                className="p-1 hover:text-white text-gray-500"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSettingsTargetBoard(board);
+                                                    setIsSettingsModalOpen(true);
+                                                }}
+                                                title="Configure ID"
                                             >
-                                                <Shield size={12} />
+                                                <Settings size={12} />
                                             </button>
 
                                             {/* Rename */}

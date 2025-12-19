@@ -18,7 +18,7 @@ export const useBoards = (
                 if (!currentBoardId) setCurrentBoardId(data[0].id);
             } else {
                 // If no boards, create default
-                const defaultId = `board-${Date.now()}`;
+                const defaultId = `case-${Date.now()}`;
                 const defaultBoard = {
                     id: defaultId,
                     name: 'Main Case'
@@ -44,7 +44,8 @@ export const useBoards = (
     }, []);
 
     const addBoard = useCallback(async () => {
-        const newId = `board-${Date.now()}`;
+        // Fix: Explicitly generate ID to avoid null constraint violation
+        const newId = `case-${Date.now()}`;
         const newBoardPayload = {
             id: newId,
             name: `New Case #${boards.length + 1}`
@@ -53,7 +54,6 @@ export const useBoards = (
         console.log("Attempting to add board:", newBoardPayload);
 
         try {
-            // Note: passing array to insert as recommended
             const { data, error } = await supabase.from('boards').insert([newBoardPayload]).select();
 
             if (error) {
@@ -62,7 +62,7 @@ export const useBoards = (
                 return;
             }
 
-            // Fallback: If data is returned, use it. If not (but no error), use local payload.
+            // Fallback: If data is returned, use it. If not, use generated payload.
             const createdBoard = (data && data.length > 0) ? data[0] : newBoardPayload;
 
             console.log("Board created successfully:", createdBoard);
@@ -99,12 +99,13 @@ export const useBoards = (
         if (!window.confirm("Are you sure? This will delete all evidence in this case!")) return;
 
         try {
-            // Cascade delete manually for safety
+            // Note: If 'ON DELETE CASCADE' is not set in DB, we must manually delete children
             const { error: notesError } = await supabase.from('notes').delete().eq('board_id', id);
-            if (notesError) throw notesError;
+            // Ignore notes error if they just didn't exist, but helpful to log
+            if (notesError) console.warn("Notes delete warning:", notesError);
 
             const { error: connsError } = await supabase.from('connections').delete().eq('board_id', id);
-            if (connsError) throw connsError;
+            if (connsError) console.warn("Connections delete warning:", connsError);
 
             const { error } = await supabase.from('boards').delete().eq('id', id);
             if (error) throw error;
@@ -123,12 +124,43 @@ export const useBoards = (
         }
     }, [boards, currentBoardId]);
 
+    // NEW: Update Board ID
+    const updateBoardId = useCallback(async (oldId: string, newId: string) => {
+        if (!newId || newId === oldId) return;
+
+        try {
+            // 1. Database Update
+            // WARNING: This requires foreign key constraints to be configured with 'ON UPDATE CASCADE'
+            // If not, this might fail or orphan the records.
+            const { error } = await supabase.from('boards').update({ id: newId }).eq('id', oldId);
+
+            if (error) {
+                throw error;
+            }
+
+            // 2. Local State Update
+            setBoards(prev => prev.map(b => b.id === oldId ? { ...b, id: newId } : b));
+
+            // 3. Switch Active Context if needed
+            if (currentBoardId === oldId) {
+                setCurrentBoardId(newId);
+            }
+
+            alert("ID Updated Successfully!");
+
+        } catch (e: any) {
+            console.error("Update ID failed:", e);
+            alert("Update ID failed (Check DB Constraints): " + e.message);
+        }
+    }, [currentBoardId]);
+
     return {
         boards,
         currentBoardId,
         setCurrentBoardId,
         addBoard,
         renameBoard,
-        deleteBoard
+        deleteBoard,
+        updateBoardId
     };
 };
