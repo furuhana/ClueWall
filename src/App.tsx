@@ -121,7 +121,61 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, board, onClose, o
     );
 };
 
+import { supabase } from './supabaseClient';
+import { Session } from '@supabase/supabase-js';
+import Login from './pages/Login/Login';
+
+// ... (previous imports)
+
 const App: React.FC = () => {
+    // 0. Auth & Session State
+    const [session, setSession] = useState<Session | null>(null);
+    const [userRole, setUserRole] = useState<string | null>(null);
+    const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+
+    useEffect(() => {
+        // Initial Session Check
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setSession(session);
+            if (session) fetchUserRole(session.user.id);
+            setIsLoadingAuth(false);
+        });
+
+        // Auth State Listener
+        const {
+            data: { subscription },
+        } = supabase.auth.onAuthStateChange((_event, session) => {
+            setSession(session);
+            if (session) {
+                fetchUserRole(session.user.id);
+            } else {
+                setUserRole(null);
+            }
+            setIsLoadingAuth(false);
+        });
+
+        return () => subscription.unsubscribe();
+    }, []);
+
+    const fetchUserRole = async (userId: string) => {
+        try {
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('role')
+                .eq('id', userId)
+                .single();
+
+            if (data) {
+                setUserRole(data.role);
+                if (data.role === 'admin') {
+                    console.log("🔥 超级管理员已登录");
+                }
+            }
+        } catch (e) {
+            console.error("Failed to fetch role", e);
+        }
+    };
+
     // 1. Interaction Ref for Conflict Resolution
     const interactionRef = useRef<{ draggingId: string | null; resizingId: string | null; rotatingId: string | null }>({ draggingId: null, resizingId: null, rotatingId: null });
 
@@ -134,82 +188,25 @@ const App: React.FC = () => {
     // 3. Board Data (Board Isolation)
     const activeBoardId = currentBoardId || 'loading-board';
 
-    // Diagnostic: Verify global board ID update
-    useEffect(() => {
-        console.log("Global activeBoardId updated to:", activeBoardId);
-    }, [activeBoardId]);
+    // ... (Hooks initialization)
 
-    const {
-        notes, setNotes, connections, setConnections, isLoading,
-        maxZIndex, setMaxZIndex, saveToCloud,
-        handleDeleteNote: dataDeleteNote, handleDeleteConnection, clearBoard, updateNote
-    } = useBoardData(activeBoardId, interactionRef);
+    // Render Logic Gating
+    if (isLoadingAuth) {
+        return <div className="w-screen h-screen bg-black text-white flex items-center justify-center font-mono animate-pulse">Initializing Secure Connection...</div>;
+    }
 
-    // 4. Canvas View
-    const {
-        view, setView, isPanning, toWorld,
-        handleZoomIn, handleZoomOut, handleResetView, handleWheel,
-        startPan, updatePan, stopPan, cancelAnimation
-    } = useCanvasView();
+    if (!session) {
+        return <Login />;
+    }
 
-    // 5. Pinning & Connections
-    const {
-        connectingNodeId, setConnectingNodeId,
-        pinDragData, setPinDragData,
-        isPinMode, setIsPinMode,
-        handlePinMouseDown, handlePinMove, handlePinMouseUp,
-        handlePinClick, handleStartPinFromCorner, handleNodeClickForPin
-    } = usePinning(notes, setNotes, connections, setConnections, saveToCloud, view, toWorld);
+    // Main App Render (Only if session exists)
+    return (
+        <div
+            ref={boardRef}
+            // ... rest of the app
 
-    // 6. Interactions
-    const {
-        draggingId, setDraggingId,
-        rotatingId, setRotatingId,
-        resizingId, setResizingId,
-        selectionBox, setSelectionBox,
-        selectedIds, setSelectedIds,
-        transformStart, setTransformStart,
-        ghostNote, setGhostNote,
-        handleNodeMouseDown, handleRotateStart, handleResizeStart,
-        handleBackgroundMouseDown: handleInteractionBackgroundMouseDown,
-        handleInteractionMouseMove, handleInteractionMouseUp,
-        confirmGhostCreation,
-        NOTE_TYPES
-    } = useInteractions(notes, setNotes, view, toWorld, saveToCloud, setMaxZIndex, maxZIndex, connections);
-
-    // Sync interactionRef
-    useEffect(() => {
-        interactionRef.current = { draggingId, resizingId, rotatingId };
-    }, [draggingId, resizingId, rotatingId]);
-
-    // 7. Stealth Mode & Audio
-    const handleResetInteractions = useCallback(() => {
-        setConnectingNodeId(null);
-        setIsPinMode(false);
-        setSelectionBox(null);
-        setDraggingId(null);
-        setRotatingId(null);
-        setResizingId(null);
-        setSelectedIds(new Set());
-    }, [setConnectingNodeId, setIsPinMode, setSelectionBox, setDraggingId, setRotatingId, setResizingId, setSelectedIds]);
-
-    const { isUIHidden, setIsUIHidden, showHiddenModeToast } = useStealthMode(handleResetInteractions);
-    const { isMusicPlaying, toggleMusic, audioRef } = useAudio();
-
-    // 8. File Drop
-    const { isDraggingFile, handleDragEnter, handleDragLeave, handleDragOver, handleDrop } = useFileDrop(toWorld, setNotes, maxZIndex, setMaxZIndex, saveToCloud);
-
-    // 9. Local State & Wrappers
-    const boardRef = useRef<HTMLDivElement>(null);
-    const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
-    const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-    const [isSpacePressed, setIsSpacePressed] = useState(false);
-
-    // Sidebar State
-    const [showSidebar, setShowSidebar] = useState(false);
-
-    // NEW: Board Settings UI State
-    const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+            // NEW: Board Settings UI State
+            const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [settingsTargetBoard, setSettingsTargetBoard] = useState<Board | null>(null);
 
     const handleDeleteNoteWrapper = (id: string) => {

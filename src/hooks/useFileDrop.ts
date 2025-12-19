@@ -1,6 +1,7 @@
-import { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { uploadImage } from '../api';
 import { Note } from '../types';
+import { supabase } from '../supabaseClient';
 
 export const useFileDrop = (
     toWorld: (x: number, y: number) => { x: number, y: number },
@@ -37,13 +38,23 @@ export const useFileDrop = (
         const imageFiles = files.filter(file => file.type.startsWith('image/'));
         if (imageFiles.length === 0) return;
 
+        // 🟢 PREPARE USER INFO FROM SUPABASE
+        let userId = undefined;
+        let userName = undefined;
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+            userId = user.id;
+            userName = user.email || user.user_metadata?.full_name || 'AnonymousAgent';
+        }
+
         let currentZ = maxZIndex;
         const worldPos = toWorld(e.clientX, e.clientY);
         const dropX = worldPos.x;
         const dropY = worldPos.y;
 
         const promises = imageFiles.map(async (file, index) => {
-            const driveFileId = await uploadImage(file);
+            // 🟢 PASS USER INFO TO API
+            const driveFileId = await uploadImage(file, userId, userName);
             if (!driveFileId) return null;
 
             return new Promise<Note>((resolve) => {
