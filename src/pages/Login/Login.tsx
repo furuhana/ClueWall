@@ -2,7 +2,13 @@ import React, { useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import './Login.css';
 
-const Login: React.FC = () => {
+import { toast } from 'sonner';
+
+interface LoginProps {
+    loginMessage: string | null;
+}
+
+const Login: React.FC<LoginProps> = ({ loginMessage }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -24,23 +30,30 @@ const Login: React.FC = () => {
             console.log("Login successful, session:", data.session);
             // Verify session is active
             if (data.session) {
-                alert("Login Successful! Welcome, Detective.");
-                // Redirect logic would go here, or global state update
+                toast.success("Identity Verified. Access Granted.");
+                // Redirect logic handled by App listener
             }
         } catch (error: any) {
             console.error("Login failed:", error);
             setErrorMsg(error.message || "Authentication failed");
+            toast.error("Authentication Failed");
         } finally {
             setLoading(false);
         }
     };
 
-
+    const hasError = errorMsg || loginMessage;
 
     return (
         <div className="login-container">
             <div className="login-card">
                 <h2 className="login-title">ClueWall Access</h2>
+
+                {hasError && (
+                    <div className="w-full bg-red-900/50 border border-red-500/30 text-red-200 text-xs font-mono p-3 mb-4 rounded text-center tracking-wide animate-pulse">
+                        {errorMsg || loginMessage}
+                    </div>
+                )}
 
                 <form onSubmit={handleLogin}>
                     <div className="form-group">
@@ -68,8 +81,6 @@ const Login: React.FC = () => {
                             required
                         />
                     </div>
-
-                    {errorMsg && <div className="error-message">{errorMsg}</div>}
 
                     <button
                         type="submit"
