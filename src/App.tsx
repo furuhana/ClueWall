@@ -68,7 +68,7 @@ const App: React.FC = () => {
   
   const toWorld = useCallback((screenX: number, screenY: number) => ({ x: (screenX - view.x) / view.zoom, y: (screenY - view.y) / view.zoom }), [view]);
 
-  // --- 🟢 音乐控制逻辑 ---
+  // --- 音乐控制逻辑 ---
   const toggleMusic = () => {
     if (!audioRef.current) return;
     if (isMusicPlaying) {
@@ -81,12 +81,10 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (audioRef.current) {
-      audioRef.current.volume = 0.2; // 设置适中音量
+      audioRef.current.volume = 0.2;
       const playPromise = audioRef.current.play();
       if (playPromise !== undefined) {
-        playPromise.then(() => {
-          setIsMusicPlaying(true);
-        }).catch(() => {
+        playPromise.then(() => setIsMusicPlaying(true)).catch(() => {
           const enableAudio = () => {
             if (audioRef.current) {
               audioRef.current.play().then(() => setIsMusicPlaying(true));
@@ -160,9 +158,9 @@ const App: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
-  }, []);
+  }, [isUIHidden]);
 
-  // --- 2. 数据加载与保存逻辑 ---
+  // --- 2. 数据处理逻辑 ---
   useEffect(() => {
     const fetchInitialData = async () => {
       setIsLoading(true);
@@ -202,7 +200,7 @@ const App: React.FC = () => {
     saveToCloud([updatedNote], []);
   };
 
-  // --- 3. 核心交互：图钉逻辑 ---
+  // --- 3. 核心交互逻辑：图钉与点击 ---
   const handlePinMouseDown = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     const note = notes.find(n => n.id === id);
@@ -224,38 +222,42 @@ const App: React.FC = () => {
     e.stopPropagation(); 
     if (ghostNote) { setGhostNote(null); return; }
 
-    // 🟢 模式 1：连线模式 (当 connectingNodeId 存在时)
-    if (connectingNodeId && connectingNodeId !== id) {
-        const target = notes.find(n => n.id === id); if (!target) return;
+    // 🟢 修复重点：图钉创建与连线逻辑置顶
+    const isConnecting = connectingNodeId && connectingNodeId !== id;
+    
+    if (isPinMode || isConnecting) {
+        const target = notes.find(n => n.id === id); 
+        if (!target) return;
+        
         const rect = e.currentTarget.getBoundingClientRect();
         const rad = -(target.rotation * Math.PI) / 180;
         const { width: w, height: h } = getNoteDimensions(target);
-        const pinX = w/2 + ((e.clientX - (rect.left + rect.width/2)) * Math.cos(rad) - (e.clientY - (rect.top + rect.height/2)) * Math.sin(rad)) / view.zoom;
-        const pinY = h/2 + ((e.clientX - (rect.left + rect.width/2)) * Math.sin(rad) + (e.clientY - (rect.top + rect.height/2)) * Math.cos(rad)) / view.zoom;
+        
+        // 计算点击位置相对于卡片中心的局部坐标
+        const clickDX = e.clientX - (rect.left + rect.width / 2);
+        const clickDY = e.clientY - (rect.top + rect.height / 2);
+        
+        const pinX = w / 2 + (clickDX * Math.cos(rad) - clickDY * Math.sin(rad)) / view.zoom;
+        const pinY = h / 2 + (clickDX * Math.sin(rad) + clickDY * Math.cos(rad)) / view.zoom;
+        
         const updatedTarget = { ...target, hasPin: true, pinX, pinY };
-        const newConn = { id: `c-${Date.now()}`, sourceId: connectingNodeId, targetId: id, color: '#D43939' };
-        setNotes(prev => prev.map(n => n.id === id ? updatedTarget : n));
-        setConnections(prev => [...prev, newConn]);
-        saveToCloud([updatedTarget], [newConn]);
-        setConnectingNodeId(null); setIsPinMode(false);
+
+        if (isConnecting) {
+            const newConn = { id: `c-${Date.now()}`, sourceId: connectingNodeId!, targetId: id, color: '#D43939' };
+            setNotes(prev => prev.map(n => n.id === id ? updatedTarget : n));
+            setConnections(prev => [...prev, newConn]);
+            saveToCloud([updatedTarget], [newConn]);
+            setConnectingNodeId(null);
+        } else {
+            setNotes(prev => prev.map(n => n.id === id ? updatedTarget : n));
+            saveToCloud([updatedTarget], []);
+        }
+        
+        setIsPinMode(false); // 放置后自动退出模式
         return;
     }
 
-    // 🟢 模式 2：图钉模式 (左上角按钮激活后)
-    if (isPinMode) {
-        const target = notes.find(n => n.id === id); if (!target) return;
-        const rect = e.currentTarget.getBoundingClientRect();
-        const rad = -(target.rotation * Math.PI) / 180;
-        const { width: w, height: h } = getNoteDimensions(target);
-        const pinX = w/2 + ((e.clientX - (rect.left + rect.width/2)) * Math.cos(rad) - (e.clientY - (rect.top + rect.height/2)) * Math.sin(rad)) / view.zoom;
-        const pinY = h/2 + ((e.clientX - (rect.left + rect.width/2)) * Math.sin(rad) + (e.clientY - (rect.top + rect.height/2)) * Math.cos(rad)) / view.zoom;
-        const updated = { ...target, hasPin: true, pinX, pinY };
-        setNotes(notes.map(n => n.id === id ? updated : n));
-        saveToCloud([updated], []);
-        setIsPinMode(false); // 放置完自动退出模式
-        return;
-    }
-
+    // Alt + 左键复制逻辑
     if (e.altKey) {
         const target = notes.find(n => n.id === id);
         if (target) {
@@ -346,7 +348,7 @@ const App: React.FC = () => {
       setGhostNote({ x: center.x, y: center.y, typeIndex: NOTE_TYPES.indexOf(type) });
   };
 
-  // --- 4. 画板列表操作 ---
+  // --- 4. 画板管理逻辑 ---
   const handleAddBoard = async () => {
     const newId = `board-${Date.now()}`;
     const newBoard = { id: newId, name: `New Case #${boards.length + 1}` };
@@ -402,7 +404,8 @@ const App: React.FC = () => {
                 <button onClick={() => addNote('scrap')} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs font-bold transition-colors">Add Scrap</button>
                 <button onClick={() => addNote('marker')} className="col-span-2 px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs font-bold transition-colors">Add Marker</button>
             </div>
-            <button onClick={() => setIsPinMode(!isPinMode)} className={`w-full mt-2 py-2 rounded text-xs font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700'}`}>
+            {/* 🟢 创建图钉工具按钮 */}
+            <button onClick={() => setIsPinMode(!isPinMode)} className={`w-full mt-2 py-2 rounded text-xs font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black shadow-[0_0_15px_rgba(234,179,8,0.5)]' : 'bg-gray-700 hover:bg-gray-600'}`}>
               {isPinMode ? 'DONE (PLACING...)' : 'ACTIVATE PIN TOOL'}
             </button>
           </div>
@@ -434,7 +437,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* 右上角控制：包含音乐切换按钮 */}
+      {/* 右上角控制 */}
       {!isUIHidden && (
         <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2">
             <div className="bg-black/80 backdrop-blur text-white rounded-lg border border-white/10 flex flex-col items-center shadow-xl">
@@ -450,7 +453,7 @@ const App: React.FC = () => {
         </div>
       )}
       
-      {/* 画布核心 */}
+      {/* 画布渲染 */}
       <div className="absolute top-0 left-0 w-0 h-0" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, transformOrigin: '0 0' }}>
           {notes.map((note) => (
             <DetectiveNode 
@@ -459,7 +462,6 @@ const App: React.FC = () => {
               onMouseDown={handleNodeMouseDown} 
               isSelected={selectedIds.has(note.id)} 
               onDoubleClick={() => setEditingNodeId(note.id)} 
-              // 🟢 关键：补齐这两个属性，让节点感知图钉和连线模式
               isPinMode={isPinMode}
               isConnecting={!!connectingNodeId}
               isSelectedForConnection={connectingNodeId === note.id}
@@ -478,7 +480,6 @@ const App: React.FC = () => {
                     <div className={`w-24 h-24 rounded-full border-4 flex flex-col items-center justify-center shadow-2xl backdrop-blur-sm animate-pulse ${s[t]}`}>
                         <span className="text-[10px] font-bold uppercase">{t}</span>
                     </div>
-                    <div className="mt-2 text-white/50 text-[10px] font-mono text-center">ARROWS / SCROLL</div>
                 </div>
               );
           })()}
