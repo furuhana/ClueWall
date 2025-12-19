@@ -8,6 +8,8 @@ import {
     StickyNote, Image as ImageIcon, Folder, FileText, ChevronRight, Archive, PlusSquare, Shield, Edit3, Settings, X, AlertTriangle
 } from 'lucide-react';
 
+import { Sidebar } from './components/Sidebar';
+
 // Hooks
 import { useBoardData } from './hooks/useBoardData';
 import { useCanvasView } from './hooks/useCanvasView';
@@ -413,83 +415,25 @@ const App: React.FC = () => {
                     onMouseDown={(e) => e.stopPropagation()}
                     onDoubleClick={(e) => e.stopPropagation()}
                 >
-                    <div className="bg-black/80 backdrop-blur text-white p-4 rounded-lg shadow-float border border-white/10 max-w-sm transition-all duration-300">
+                    <Sidebar
+                        // Tools
+                        onAddNote={addNote}
+                        onClearBoard={clearBoard}
+                        isPinMode={isPinMode}
+                        onTogglePinMode={() => setIsPinMode(!isPinMode)}
 
-                        {/* Sidebar / Case Header */}
-                        <div className="flex items-center justify-between mb-4 border-b border-white/10 pb-2">
-                            <div className="flex items-center gap-2 cursor-pointer hover:text-yellow-400" onClick={() => setShowSidebar(!showSidebar)}>
-                                <Archive size={16} />
-                                <h1 className="text-xl font-bold font-handwriting text-red-500">{boards.find(b => b.id === activeBoardId)?.name || 'Loading Case...'}</h1>
-                                <ChevronRight size={16} className={`transform transition-transform ${showSidebar ? 'rotate-90' : ''}`} />
-                            </div>
-                        </div>
-
-                        {/* Expandable Case List */}
-                        {showSidebar && (
-                            <div className="mb-4 max-h-48 overflow-y-auto border-b border-white/10 pb-2">
-                                {boards.map(board => (
-                                    <div
-                                        key={board.id}
-                                        className={`group flex items-center justify-between px-2 py-1 rounded text-sm cursor-pointer ${board.id === activeBoardId ? 'bg-red-900/40 text-red-200' : 'hover:bg-white/5 text-gray-400'}`}
-                                        onClick={() => setCurrentBoardId(board.id)}
-                                    >
-                                        <div className="flex items-center gap-2 overflow-hidden">
-                                            <span>{board.name}</span>
-                                            {board.id === activeBoardId && <span className="text-[10px] uppercase font-bold text-red-500 flex-shrink-0">Active</span>}
-                                        </div>
-
-                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            {/* Configuration (New) */}
-                                            <button
-                                                className="p-1 hover:text-white text-gray-500"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setSettingsTargetBoard(board);
-                                                    setIsSettingsModalOpen(true);
-                                                }}
-                                                title="Configure ID"
-                                            >
-                                                <Settings size={12} />
-                                            </button>
-
-                                            {/* Rename */}
-                                            <button
-                                                className="p-1 hover:text-blue-400 text-gray-500"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    const newName = prompt("Rename Case:", board.name);
-                                                    if (newName) renameBoard(board.id, newName);
-                                                }}
-                                                title="Rename"
-                                            >
-                                                <Edit3 size={12} />
-                                            </button>
-
-                                            {/* Delete */}
-                                            {boards.length > 1 && (
-                                                <button
-                                                    className="p-1 hover:text-red-500 text-gray-500"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        deleteBoard(board.id);
-                                                    }}
-                                                    title="Delete Case"
-                                                >
-                                                    <Trash2 size={12} />
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                                <button onClick={addBoard} className="w-full mt-2 flex items-center justify-center gap-2 py-1 border border-dashed border-gray-600 rounded text-xs text-gray-400 hover:text-white hover:border-gray-400">
-                                    <PlusSquare size={12} /> New Case File
-                                </button>
-                            </div>
-                        )}
-
-                        {/* Tools */}
-                        <div className="flex flex-col gap-2"><button onClick={() => setIsPinMode(!isPinMode)} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-bold transition-all ${isPinMode ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600'}`}><MapPin size={16} /> {isPinMode ? 'DONE' : 'PIN TOOL'}</button><div className="grid grid-cols-2 gap-2 mt-2"><button onClick={() => addNote('note')} className="px-2 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs">Add Note</button><button onClick={() => addNote('photo')} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Add Photo</button><button onClick={() => addNote('dossier')} className="px-2 py-1 bg-orange-800 hover:bg-orange-700 rounded text-xs">Add Dossier</button><button onClick={() => addNote('scrap')} className="px-2 py-1 bg-stone-300 hover:bg-stone-200 text-stone-900 rounded text-xs">Add Scrap</button><button onClick={() => addNote('marker')} className="px-3 py-1 bg-[#ABBDD7] hover:bg-[#9aacd0] text-blue-900 font-bold col-span-2 rounded text-xs flex items-center justify-center gap-1">Add Marker</button><button onClick={clearBoard} className="px-3 py-1 col-span-2 border border-red-900 text-red-400 hover:bg-red-900/50 rounded text-xs flex items-center justify-center gap-1"><Trash2 size={12} /> Clear</button></div></div>
-                    </div>
+                        // Boards
+                        boards={boards}
+                        activeBoardId={activeBoardId}
+                        onSelectBoard={setCurrentBoardId}
+                        onAddBoard={addBoard}
+                        onRenameBoard={renameBoard}
+                        onDeleteBoard={deleteBoard}
+                        onOpenSettings={(board) => {
+                            setSettingsTargetBoard(board);
+                            setIsSettingsModalOpen(true);
+                        }}
+                    />
                 </div>
             )}
 
