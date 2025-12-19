@@ -31,8 +31,6 @@ interface SettingsModalProps {
     isOpen: boolean;
     board: Board | null;
     onClose: () => void;
-    onUpdateId: (oldId: string, newId: string) => Promise<boolean | void>; // Deprecated in UI but keeping type signature for now or removing?
-    // Actually updateBoardId in useBoards removed ID update. We should remove this prop.
     onDelete: (id: number) => Promise<void>;
 }
 
@@ -527,22 +525,48 @@ const App: React.FC = () => {
     const [userRole, setUserRole] = useState<string | null>(null);
     const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
-    const fetchUserRole = async (userId: string) => {
+    const [isCheckingProfile, setIsCheckingProfile] = useState(false);
+
+    // Profile Check & Creation Logic
+    const checkOrCreateProfile = async (userId: string, email: string) => {
+        setIsCheckingProfile(true);
         try {
-            const { data, error } = await supabase
+            // 1. Check if profile exists
+            const { data: profile, error: fetchError } = await supabase
                 .from('profiles')
-                .select('role')
+                .select('*')
                 .eq('id', userId)
                 .single();
 
-            if (data) {
-                setUserRole(data.role);
-                if (data.role === 'admin') {
-                    console.log("🔥 超级管理员已登录");
-                }
+            if (profile) {
+                console.log("🔥 Profile found:", profile);
+                setUserRole(profile.role);
+                setIsCheckingProfile(false);
+                return;
             }
+
+            if (fetchError && fetchError.code !== 'PGRST116') {
+                console.error("Error fetching profile:", fetchError);
+                // Continue to try create? Or fail? Let's try create if not found.
+            }
+
+            // 2. Create if missing
+            console.log("🔥 Profile missing, creating new record...");
+            const { error: insertError } = await supabase
+                .from('profiles')
+                .insert([{ id: userId, email: email, role: 'user' }]);
+
+            if (insertError) {
+                console.error("Failed to create profile:", insertError);
+            } else {
+                console.log("✅ Profile initialized successfully");
+                setUserRole('user');
+            }
+
         } catch (e) {
-            console.error("Failed to fetch role", e);
+            console.error("Profile check failed:", e);
+        } finally {
+            setIsCheckingProfile(false);
         }
     };
 
@@ -550,8 +574,10 @@ const App: React.FC = () => {
         // Initial Session Check
         supabase.auth.getSession().then(({ data: { session } }) => {
             setSession(session);
-            if (session) fetchUserRole(session.user.id);
             setIsLoadingAuth(false);
+            if (session) {
+                checkOrCreateProfile(session.user.id, session.user.email || '');
+            }
         });
 
         // Auth State Listener
@@ -559,12 +585,13 @@ const App: React.FC = () => {
             data: { subscription },
         } = supabase.auth.onAuthStateChange((_event, session) => {
             setSession(session);
+            setIsLoadingAuth(false);
             if (session) {
-                fetchUserRole(session.user.id);
+                checkOrCreateProfile(session.user.id, session.user.email || '');
             } else {
                 setUserRole(null);
+                setIsCheckingProfile(false);
             }
-            setIsLoadingAuth(false);
         });
 
         return () => subscription.unsubscribe();
@@ -579,8 +606,14 @@ const App: React.FC = () => {
         return <Login />;
     }
 
-    // Only render the main app if session is valid. 
-    // This ensures useBoards hooks inside ClueWallApp only run when referenced to a valid user.
+    if (isCheckingProfile) {
+        return <div className="w-screen h-screen bg-black text-white flex items-center justify-center font-mono flex-col gap-4">
+            <Loader2 className="animate-spin text-yellow-500" size={48} />
+            <div className="text-sm tracking-widest opacity-80 animate-pulse">Initializing Agent Profile...</div>
+        </div>;
+    }
+
+    // Only render the main app if session is valid AND profile checked. 
     return <ClueWallApp session={session} userRole={userRole} />;
 };
 
