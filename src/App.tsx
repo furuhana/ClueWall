@@ -188,25 +188,82 @@ const App: React.FC = () => {
     // 3. Board Data (Board Isolation)
     const activeBoardId = currentBoardId || 'loading-board';
 
-    // ... (Hooks initialization)
+    // Diagnostic: Verify global board ID update
+    useEffect(() => {
+        console.log("Global activeBoardId updated to:", activeBoardId);
+    }, [activeBoardId]);
 
-    // Render Logic Gating
-    if (isLoadingAuth) {
-        return <div className="w-screen h-screen bg-black text-white flex items-center justify-center font-mono animate-pulse">Initializing Secure Connection...</div>;
-    }
+    const {
+        notes, setNotes, connections, setConnections, isLoading,
+        maxZIndex, setMaxZIndex, saveToCloud,
+        handleDeleteNote: dataDeleteNote, handleDeleteConnection, clearBoard, updateNote
+    } = useBoardData(activeBoardId, interactionRef);
 
-    if (!session) {
-        return <Login />;
-    }
+    // 4. Canvas View
+    const {
+        view, setView, isPanning, toWorld,
+        handleZoomIn, handleZoomOut, handleResetView, handleWheel,
+        startPan, updatePan, stopPan, cancelAnimation
+    } = useCanvasView();
 
-    // Main App Render (Only if session exists)
-    return (
-        <div
-            ref={boardRef}
-            // ... rest of the app
+    // 5. Pinning & Connections
+    const {
+        connectingNodeId, setConnectingNodeId,
+        pinDragData, setPinDragData,
+        isPinMode, setIsPinMode,
+        handlePinMouseDown, handlePinMove, handlePinMouseUp,
+        handlePinClick, handleStartPinFromCorner, handleNodeClickForPin
+    } = usePinning(notes, setNotes, connections, setConnections, saveToCloud, view, toWorld);
 
-            // NEW: Board Settings UI State
-            const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+    // 6. Interactions
+    const {
+        draggingId, setDraggingId,
+        rotatingId, setRotatingId,
+        resizingId, setResizingId,
+        selectionBox, setSelectionBox,
+        selectedIds, setSelectedIds,
+        transformStart, setTransformStart,
+        ghostNote, setGhostNote,
+        handleNodeMouseDown, handleRotateStart, handleResizeStart,
+        handleBackgroundMouseDown: handleInteractionBackgroundMouseDown,
+        handleInteractionMouseMove, handleInteractionMouseUp,
+        confirmGhostCreation,
+        NOTE_TYPES
+    } = useInteractions(notes, setNotes, view, toWorld, saveToCloud, setMaxZIndex, maxZIndex, connections);
+
+    // Sync interactionRef
+    useEffect(() => {
+        interactionRef.current = { draggingId, resizingId, rotatingId };
+    }, [draggingId, resizingId, rotatingId]);
+
+    // 7. Stealth Mode & Audio
+    const handleResetInteractions = useCallback(() => {
+        setConnectingNodeId(null);
+        setIsPinMode(false);
+        setSelectionBox(null);
+        setDraggingId(null);
+        setRotatingId(null);
+        setResizingId(null);
+        setSelectedIds(new Set());
+    }, [setConnectingNodeId, setIsPinMode, setSelectionBox, setDraggingId, setRotatingId, setResizingId, setSelectedIds]);
+
+    const { isUIHidden, setIsUIHidden, showHiddenModeToast } = useStealthMode(handleResetInteractions);
+    const { isMusicPlaying, toggleMusic, audioRef } = useAudio();
+
+    // 8. File Drop
+    const { isDraggingFile, handleDragEnter, handleDragLeave, handleDragOver, handleDrop } = useFileDrop(toWorld, setNotes, maxZIndex, setMaxZIndex, saveToCloud);
+
+    // 9. Local State & Wrappers
+    const boardRef = useRef<HTMLDivElement>(null);
+    const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+    const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+    const [isSpacePressed, setIsSpacePressed] = useState(false);
+
+    // Sidebar State
+    const [showSidebar, setShowSidebar] = useState(false);
+
+    // NEW: Board Settings UI State
+    const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [settingsTargetBoard, setSettingsTargetBoard] = useState<Board | null>(null);
 
     const handleDeleteNoteWrapper = (id: string) => {
