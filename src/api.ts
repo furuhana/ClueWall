@@ -38,7 +38,7 @@ export const uploadToGAS = async (payload: {
   fileName: string;
   base64Data: string;
   contentType: string;
-}): Promise<{ status: string; message: string; fileUrl?: string } | null> => {
+}): Promise<{ status: string; message: string; fileUrl?: string; url?: string } | null> => {
   const GAS_URL = 'https://script.google.com/macros/s/AKfycbxtCyRhNQ6iX5DJDQd0mmNWu3b6TVxTtLCut2FRyd5O-H7VYvyDGJQEhJfzEczz1PBN4w/exec';
 
   try {

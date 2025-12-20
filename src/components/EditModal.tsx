@@ -60,9 +60,12 @@ const EditModal: React.FC<EditModalProps> = ({ note, onSave, onClose }) => {
 
         if (result && result.status === 'success') {
           // 🟢 GET REAL URL FROM GAS RESPONSE
-          if (result.fileUrl) {
-            setPreviewImage(result.fileUrl);
-            console.log("Image uploaded, URL:", result.fileUrl);
+          // Support both 'url' (standard) and 'fileUrl' (legacy/mapped)
+          const finalUrl = result.url || result.fileUrl;
+
+          if (finalUrl) {
+            setPreviewImage(finalUrl);
+            console.log("Image uploaded, URL:", finalUrl);
           } else {
             // Fallback if URL missing (shouldn't happen with updated GAS)
             const localUrl = URL.createObjectURL(file);
