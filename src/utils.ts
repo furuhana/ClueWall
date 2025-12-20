@@ -158,3 +158,19 @@ export const sanitizeConnectionForInsert = (conn: any) => {
     color: conn.color || '#666'
   };
 };
+
+// --- Presence / Cursor Utils ---
+
+export const getCursorColor = (id: string): string => {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+
+  // Generate HSL color with good saturation and lightness (avoid too dark/light)
+  const hue = Math.abs(hash % 360);
+  const saturation = 70 + (Math.abs(hash) % 30); // 70-100%
+  const lightness = 40 + (Math.abs(hash) % 20);   // 40-60% (visible on most backgrounds)
+
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+};

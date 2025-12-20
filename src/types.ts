@@ -39,3 +39,13 @@ export interface Board {
   created_at?: string;
   user_id?: string;
 }
+
+export interface UserCursor {
+  sessionId: string;
+  userId: string | null;
+  username: string;
+  x: number;
+  y: number;
+  color: string;
+  lastUpdated: number;
+}

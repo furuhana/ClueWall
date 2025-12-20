@@ -22,7 +22,10 @@ import { useStealthMode } from './hooks/useStealthMode';
 import { useAudio } from './hooks/useAudio';
 import { useFileDrop } from './hooks/useFileDrop';
 import { useBoards } from './hooks/useBoards';
+import { usePresence } from './hooks/usePresence'; // 🟢 Import Hook
 import { mapNoteToDb, mapDbToNote, mapDbToConnection, sanitizeNoteForInsert } from './utils';
+import { CursorLayer } from './components/CursorLayer'; // 🟢 Import Component
+import { PresenceBar } from './components/PresenceBar'; // 🟢 Import Component
 
 const GRID_URL = "data:image/svg+xml,%3Csvg width='30' height='30' viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='30' height='30' fill='none' stroke='%23CAB9A1' stroke-width='0.7' opacity='0.3'/%3E%3C/svg%3E";
 
@@ -56,7 +59,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, board, onClose, o
                 </div>
 
                 <div className="space-y-6">
-                    {/* Info Section */}
+                    {/* 🟢 Presence Bar */}
+                    <PresenceBar otherUsers={otherUsers} myUserName={myUserName} />
+
+                    {/* Sync Feedback UI */}
                     <div>
                         <label className="block text-xs uppercase tracking-widest text-gray-500 mb-1">Current Case Name</label>
                         <div className="text-white font-mono text-lg">{board.name}</div>
@@ -284,6 +290,22 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [settingsTargetBoard, setSettingsTargetBoard] = useState<Board | null>(null);
 
+    // 🟢 Presence Hook
+    const [userName] = useState(() => 'Agent-' + Math.floor(Math.random() * 1000));
+    const { otherUsers, broadcastMouse } = usePresence(activeBoardId, userName);
+
+    const handleMouseMoveWrapper = (e: React.MouseEvent) => {
+        const { x: worldX, y: worldY } = toWorld(e.clientX, e.clientY);
+        broadcastMouse(worldX, worldY);
+
+        // Update local mouse pos for other logic
+        setMousePos({ x: e.clientX, y: e.clientY });
+
+        // Call original logic if needed (handled by logic below usually)
+        handleDragMove(e);
+        handlePanMove(e);
+    };
+
     const handleDeleteNoteWrapper = (id: number) => {
         if (connectingNodeId === id) setConnectingNodeId(null);
         dataDeleteNote(id);
@@ -429,7 +451,7 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
             }}
             onWheel={handleMainWheel}
             onMouseDown={handleMainMouseDown}
-            onMouseMove={handleMainMouseMove}
+            onMouseMove={handleMouseMoveWrapper}
             onDoubleClick={handleBackgroundDoubleClick}
             onDrop={handleDrop}
             onDragEnter={handleDragEnter}
