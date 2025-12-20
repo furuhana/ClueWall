@@ -81,15 +81,17 @@ export const useFileDrop = (
                 contentType: file.type
             });
 
-            if (!gasResponse) return null; // Upload failure logic
-
-            // 🟢 DETERMINE FILE ID (URL)
-            // Expecting real URL from GAS now
-            const fileId = gasResponse.fileUrl || URL.createObjectURL(file);
-
-            if (!gasResponse.fileUrl) {
-                console.warn("GAS did not return a URL. Using blob URL temporarily.");
+            if (!gasResponse || !gasResponse.fileUrl) {
+                console.error("GAS Upload Failed or returned no URL");
+                alert("Upload failed. Please check your internet or GAS deployment.");
+                return null;
             }
+
+            // 🟢 DETERMINE FILE ID (REAL URL ONLY)
+            const fileId = gasResponse.fileUrl;
+
+            // Only use blob for temp rendering if needed, but we have real URL now.
+            // We will use the real URL for saving dimensions too.
 
             return new Promise<Note>((resolve, reject) => {
                 const img = new Image();
