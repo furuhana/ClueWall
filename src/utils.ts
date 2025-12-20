@@ -1,4 +1,4 @@
-import { Note } from './types';
+import { Note, Connection } from './types';
 import { NODE_WIDTH } from './constants';
 
 export const getNoteDimensions = (note: Note) => {
