@@ -70,9 +70,10 @@ export const useBoards = (
                     .order('created_at', { ascending: false });
 
                 // If NOT admin, filter by user_id. Admins see all.
-                if (userRole !== 'admin') {
-                    query = query.eq('user_id', userId);
-                }
+                // 🟢 PUBLIC MODE: Allow all users to see all boards for collaboration.
+                // if (userRole !== 'admin') {
+                //    query = query.eq('user_id', userId);
+                // }
 
                 const { data, error } = await query;
 
