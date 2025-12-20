@@ -149,7 +149,15 @@ export const useBoardData = (
         if ('id' in payload) delete (payload as any).id;
         return payload;
       });
-      await supabase.from('connections').insert(payloads);
+      const { error: connError } = await supabase.from('connections').insert(payloads);
+      if (connError) {
+        console.error("🚨 【连接线拒收报告】", {
+          "错误信息": connError.message,
+          "详情": connError.details,
+          "Hint": connError.hint,
+          "发送的数据": payloads
+        });
+      }
     }
   }, [activeBoardId]);
 
