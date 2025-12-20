@@ -56,7 +56,7 @@ const DetectiveNode: React.FC<DetectiveNodeProps> = ({ note, onMouseDown, onDoub
             src={note.file_id}
             alt={note.content}
             className="w-full h-full object-contain pointer-events-none"
-            style={{ filter: 'drop-shadow(0 8px 8px rgba(0,0,0,0.3))' }} // 🌟 Support transparent PNG shadows
+            style={{ filter: 'drop-shadow(2px 4px 6px rgba(0,0,0,0.3))' }} // 🌟 Support transparent PNG shadows (User requested style)
             draggable={false}
           />
         ) : (
