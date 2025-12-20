@@ -67,8 +67,8 @@ export const mapNoteToDb = (note: Partial<Note>): any => {
   const dbObj: any = {
     type: note.type,
     content: note.content,
-    title: note.title,
-    subtitle: note.subtitle,
+    title: note.title || null, // Ensure explicitly sent as null if missing
+    subtitle: note.subtitle || null, // Ensure explicitly sent as null if missing
     board_id: Number(note.board_id), // Strict number
     file_id: note.file_id, // Direct pass-through
     has_pin: !!note.hasPin, // Strict boolean
