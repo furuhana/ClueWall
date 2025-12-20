@@ -54,6 +54,11 @@ export const useFileDrop = (
             userName = user.email || user.user_metadata?.full_name || 'AnonymousAgent';
         }
 
+        if (!userId) {
+            alert("正在准备探员身份，请稍后拖入");
+            return;
+        }
+
         let currentZ = maxZIndex;
         const worldPos = toWorld(e.clientX, e.clientY);
         const dropX = worldPos.x;

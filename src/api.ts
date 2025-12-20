@@ -49,38 +49,38 @@ export const uploadImage = async (file: File, userId?: string, userName?: string
         const response = await fetch(API_URL, {
           method: 'POST',
           // ⚠️ 关键：原版逻辑，不要加 headers Content-Type，让浏览器自动处理 Simple Request
-          body: JSON.stringify({
-            action: 'uploadImage',
-            base64,
-            filename: file.name,
-            userId,      // 🟢 新增身份标识
-            userName     // 🟢 新增身份标识
-          })
-        });
+          action: 'uploadImage',
+          base64,
+          name: file.name, // 🟢 Renamed from filename per instruction
+          contentType: file.type, // 🟢 Added Content-Type
+          userId,      // 🟢 新增身份标识
+          userName     // 🟢 新增身份标识
+        })
+      });
 
-        // 🛡️ 防御性编程：GAS 有时会返回 HTML 错误页，直接 .json() 会崩
-        const text = await response.text();
-        try {
-          const data = JSON.parse(text);
+  // 🛡️ 防御性编程：GAS 有时会返回 HTML 错误页，直接 .json() 会崩
+  const text = await response.text();
+  try {
+    const data = JSON.parse(text);
 
-          if (data && data.status === 'success') {
-            // 优先使用 fileUrl 显示
-            const resultUrl = data.fileUrl || data.fileId;
-            console.log("上传成功! URL:", resultUrl);
-            resolve(resultUrl);
-          } else {
-            console.error("GAS 返回错误:", data);
-            resolve(null);
-          }
-        } catch (e) {
-          console.error("GAS 返回了非 JSON 数据 (可能是 HTML 报错):", text);
-          resolve(null);
-        }
+    if (data && data.status === 'success') {
+      // 优先使用 fileUrl 显示
+      const resultUrl = data.fileUrl || data.fileId;
+      console.log("上传成功! URL:", resultUrl);
+      resolve(resultUrl);
+    } else {
+      console.error("GAS 返回错误:", data);
+      resolve(null);
+    }
+  } catch (e) {
+    console.error("GAS 返回了非 JSON 数据 (可能是 HTML 报错):", text);
+    resolve(null);
+  }
 
-      } catch (e) {
-        console.error("请求发送失败 (可能是 CORS):", e);
-        resolve(null);
-      }
+} catch (e) {
+  console.error("请求发送失败 (可能是 CORS):", e);
+  resolve(null);
+}
     };
   });
 };
