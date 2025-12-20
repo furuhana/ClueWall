@@ -142,6 +142,75 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
     // 6. Interactions
     const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
+    const addNote = async (type: Note['type'], position?: { x: number, y: number }) => {
+        let x: number, y: number;
+
+        if (position) {
+            x = Number(position.x);
+            y = Number(position.y);
+        } else {
+            const centerX = window.innerWidth / 2;
+            const centerY = window.innerHeight / 2;
+            const worldPos = toWorld(centerX, centerY);
+            x = worldPos.x + (Math.random() * 100 - 50);
+            y = worldPos.y + (Math.random() * 100 - 50);
+        }
+
+        let width = 256; let height = 160;
+        if (type === 'photo') height = 280;
+        else if (type === 'dossier') height = 224;
+        else if (type === 'scrap') { width = 257; height = 50; }
+        else if (type === 'marker') { width = 30; height = 30; }
+
+        let content = 'New Clue';
+        if (type === 'photo') content = 'New Evidence';
+        else if (type === 'scrap') content = 'Scrap note...';
+        else if (type === 'marker') { const existingMarkers = notes.filter(n => n.type === 'marker'); content = (existingMarkers.length + 1).toString(); }
+
+        const boardIdToUse = activeBoardId;
+        if (!boardIdToUse) {
+            alert("Please select a case first.");
+            return;
+        }
+
+        if (!session?.user?.id) {
+            console.error("No user session found for addNote");
+            return;
+        }
+
+        const partialNote = {
+            type,
+            content,
+            x,
+            y,
+            width,
+            height,
+            scale: 1,
+            zIndex: maxZIndex + 1,
+            rotation: (Math.random() * 10) - 5,
+            fileId: type === 'photo' ? '/photo_1.png' : undefined,
+            hasPin: false,
+            board_id: Number(boardIdToUse), // Ensure number
+            user_id: session.user.id // RLS Compliance
+        };
+
+        try {
+            // Explicitly removing id if it was somehow in partialNote (it isn't, but for safety in future refactors)
+            const { data, error } = await supabase.from('notes').insert([partialNote]).select().single();
+            if (error) throw error;
+            if (data) {
+                const newNote = data as Note;
+                const nextNotes = [...notes, newNote];
+                setMaxZIndex(prev => prev + 1);
+                setNotes(nextNotes);
+                setSelectedIds(new Set([newNote.id]));
+                // Realtime sub will likely fire too, but duplicate check exists there.
+            }
+        } catch (e) {
+            console.error("Failed to add note", e);
+        }
+    };
+
     // Interactions Hook
     const {
         draggingId, setDraggingId,
@@ -198,78 +267,7 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
         dataDeleteNote(id);
     };
 
-    const addNote = async (type: Note['type'], position?: { x: number, y: number }) => {
-        let x: number, y: number;
 
-        if (position) {
-            x = Number(position.x);
-            y = Number(position.y);
-        } else {
-            const centerX = window.innerWidth / 2;
-            const centerY = window.innerHeight / 2;
-            const worldPos = toWorld(centerX, centerY);
-            x = worldPos.x + (Math.random() * 100 - 50);
-            y = worldPos.y + (Math.random() * 100 - 50);
-        }
-
-        let width = 256; let height = 160;
-        if (type === 'photo') height = 280;
-        else if (type === 'dossier') height = 224;
-        else if (type === 'scrap') { width = 257; height = 50; }
-        else if (type === 'marker') { width = 30; height = 30; }
-
-        let content = 'New Clue';
-        if (type === 'photo') content = 'New Evidence';
-        else if (type === 'scrap') content = 'Scrap note...';
-        else if (type === 'marker') { const existingMarkers = notes.filter(n => n.type === 'marker'); content = (existingMarkers.length + 1).toString(); }
-
-        const boardIdToUse = activeBoardId;
-        if (!boardIdToUse) {
-            alert("Please select a case first.");
-            return;
-        }
-
-        if (!session?.user?.id) {
-            console.error("No user session found for addNote");
-            return;
-        }
-
-        // Prepare object for stats, but ID will be assigned by DB
-        // We need to INSERT to DB first to get ID.
-        // We do this optimistically or wait? Waiting ensures valid ID.
-
-        const partialNote = {
-            type,
-            content,
-            x,
-            y,
-            width,
-            height,
-            scale: 1,
-            zIndex: maxZIndex + 1,
-            rotation: (Math.random() * 10) - 5,
-            fileId: type === 'photo' ? '/photo_1.png' : undefined,
-            hasPin: false,
-            board_id: Number(boardIdToUse), // Ensure number
-            user_id: session.user.id // RLS Compliance
-        };
-
-        try {
-            // Explicitly removing id if it was somehow in partialNote (it isn't, but for safety in future refactors)
-            const { data, error } = await supabase.from('notes').insert([partialNote]).select().single();
-            if (error) throw error;
-            if (data) {
-                const newNote = data as Note;
-                const nextNotes = [...notes, newNote];
-                setMaxZIndex(prev => prev + 1);
-                setNotes(nextNotes);
-                setSelectedIds(new Set([newNote.id]));
-                // Realtime sub will likely fire too, but duplicate check exists there.
-            }
-        } catch (e) {
-            console.error("Failed to add note", e);
-        }
-    };
 
     // Global Key Handling
     useEffect(() => {
