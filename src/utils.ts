@@ -48,7 +48,7 @@ export const mapDbToNote = (dbRecord: any): Note => {
     subtitle: dbRecord.subtitle,
     board_id: dbRecord.board_id,
     file_id: dbRecord.file_id || dbRecord.fileId, // Support both during migration, prefer snake
-    hasPin: dbRecord.has_pin,
+    hasPin: dbRecord.is_pinned ?? dbRecord.has_pin, // Support both, prefer is_pinned
     pinX: dbRecord.pin_x,
     pinY: dbRecord.pin_y,
     x: Number(dbRecord.x), // Enforce number
@@ -71,7 +71,7 @@ export const mapNoteToDb = (note: Partial<Note>): any => {
     subtitle: note.subtitle || null, // Ensure explicitly sent as null if missing
     board_id: Number(note.board_id), // Strict number
     file_id: note.file_id, // Direct pass-through
-    has_pin: !!note.hasPin, // Strict boolean
+    is_pinned: !!note.hasPin, // Strict boolean, mapped to is_pinned
     pin_x: note.pinX ? Math.round(Number(note.pinX)) : null,
     pin_y: note.pinY ? Math.round(Number(note.pinY)) : null,
     x: Math.round(Number(note.x || 0)),
