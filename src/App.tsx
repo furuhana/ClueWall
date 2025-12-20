@@ -8,7 +8,7 @@ import ConnectionLayer from './components/ConnectionLayer';
 import EditModal from './components/EditModal';
 import {
     Trash2, MapPin, UploadCloud, Plus, Minus, Volume2, VolumeX, LocateFixed, Maximize, Loader2, MousePointer2,
-    StickyNote, Image as ImageIcon, Folder, FileText, ChevronRight, Archive, PlusSquare, Shield, Edit3, Settings, X, AlertTriangle
+    StickyNote, Image as ImageIcon, Folder, FileText, ChevronRight, Archive, PlusSquare, Shield, Edit3, Settings, X, AlertTriangle, Check
 } from 'lucide-react';
 
 import { Sidebar } from './components/Sidebar';
@@ -121,7 +121,7 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
     const {
         notes, setNotes, connections, setConnections, isLoading,
         maxZIndex, setMaxZIndex, saveToCloud,
-        handleDeleteNote: dataDeleteNote, handleDeleteConnection, clearBoard, updateNote
+        handleDeleteNote: dataDeleteNote, handleDeleteConnection, clearBoard, updateNote, syncStatus
     } = useBoardData(activeBoardId || undefined, interactionRef); // Pass undefined if null to be safe
 
     // 4. Canvas View
@@ -440,7 +440,7 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
             <audio ref={audioRef} src="/home_bgm.mp3" loop autoPlay />
 
             {isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-3 bg-black/70 backdrop-blur-md text-white/90 px-4 py-2 rounded-full border border-white/10 shadow-lg pointer-events-none"><Loader2 className="animate-spin text-yellow-400" size={16} /><span className="font-mono text-xs tracking-wider">SYNCING...</span></div>}
-            {!isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-2 pointer-events-none opacity-50 hover:opacity-100 transition-opacity"><div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" /><span className="font-mono text-[10px] text-white/70 tracking-widest">SECURE CONN.</span></div>}
+            {!isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-3"><div className="flex items-center gap-2 pointer-events-none opacity-50 hover:opacity-100 transition-opacity"><div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" /><span className="font-mono text-[10px] text-white/70 tracking-widest">SECURE CONN.</span></div>{syncStatus === 'success' && (<div className="flex items-center gap-1 text-green-400 animate-in fade-in duration-300"><Check size={14} /><span className="font-mono text-[10px] tracking-wider">SAVED</span></div>)}{syncStatus === 'error' && (<div className="flex items-center gap-1 text-red-500 animate-pulse"><AlertTriangle size={14} /><span className="font-mono text-[10px] tracking-wider">SYNC FAILED</span></div>)}</div>}
 
             <div className={`fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-full backdrop-blur-md border border-white/10 transition-opacity duration-500 pointer-events-none z-[13000] ${showHiddenModeToast ? 'opacity-100' : 'opacity-0'}`}>
                 <span className="font-mono text-xs">PRESS ESC TO SHOW UI</span>
