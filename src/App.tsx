@@ -294,16 +294,51 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
     const [userName] = useState(() => 'Agent-' + Math.floor(Math.random() * 1000));
     const { otherUsers, broadcastMouse } = usePresence(activeBoardId, userName);
 
+    // ✅ Restore Dragging Logic
+    const handleDragMove = (e: React.MouseEvent) => {
+        if (!interactionRef.current.draggingId) return;
+
+        // Ensure we have start coordinates for delta calculation
+        // The useInteractions hook handles the main state updates for dragging via handleInteractionMouseMove
+        // However, if we need custom delta logic not covered by the hook, we add it here.
+        // Looking at the existing codebase, `handleInteractionMouseMove` (from line 253) seems to be the one responsible for moving interactions.
+        // Let's check line 400: `else handleInteractionMouseMove(e);`
+        // So `handleDragMove` might have been a misnomer for `handleInteractionMouseMove` in my previous thought process, 
+        // OR the user specifically wants manual logic because the hook was insufficient?
+        // The user request says: "补回丢失的拖拽逻辑" (Restore lost drag logic).
+        // And provides specific code calculating deltas.
+        // I will implement it as requested, but I must coordinate with `handleInteractionMouseMove` to avoid double movements if that hook is active.
+        // The user code uses `interactionRef.current.isDragging` which might not exist on the ref (it has draggingId).
+        // I will adapt the user's logic to match `interactionRef` structure { draggingId, resizingId, ... }.
+
+        const { draggingId } = interactionRef.current;
+        if (draggingId) {
+            // If the hook `useInteractions` already handles move, we might not need this? 
+            // But the user claimed "无法拖拽" (cannot drag), implying the hook might rely on this missing function or the `onMouseMove` was disconnected.
+            // Line 400 calls `handleInteractionMouseMove(e)`.
+            // If I use the wrapper, I must ensure `handleInteractionMouseMove(e)` is called.
+            handleInteractionMouseMove(e);
+        }
+    };
+
     const handleMouseMoveWrapper = (e: React.MouseEvent) => {
         const { x: worldX, y: worldY } = toWorld(e.clientX, e.clientY);
         broadcastMouse(worldX, worldY);
 
-        // Update local mouse pos for other logic
-        setMousePos({ x: e.clientX, y: e.clientY });
+        // Update local mouse pos
+        setMousePos({ x: worldX, y: worldY }); // Use World Coords for mousePos as expected by ConnectionLayer (line 582 mousePos usage?)
+        // Wait, ConnectionLayer usually expects world coords if it draws lines in world space.
+        // Previous line 403: `setMousePos({ x: worldMouse.x, y: worldMouse.y });`
+        // So yes, World Coords.
 
-        // Call original logic if needed (handled by logic below usually)
-        handleDragMove(e);
-        handlePanMove(e);
+        // Dispatch to appropriate handlers
+        if (isPanning) {
+            updatePan(e.clientX, e.clientY);
+        } else if (pinDragData) {
+            handlePinMove(e);
+        } else {
+            handleInteractionMouseMove(e); // This handles dragging/resizing/rotating via useInteractions hook
+        }
     };
 
     const handleDeleteNoteWrapper = (id: number) => {
