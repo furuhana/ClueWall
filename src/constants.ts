@@ -2,7 +2,7 @@ import { Note, Connection } from './types';
 
 export const INITIAL_NOTES: Note[] = [
   {
-    id: 'n1',
+    id: 1,
     type: 'photo',
     content: 'Suspect spotted leaving the scene.',
     fileId: '/photo_1.png',
@@ -16,7 +16,7 @@ export const INITIAL_NOTES: Note[] = [
     scale: 1
   },
   {
-    id: 'n2',
+    id: 2,
     type: 'dossier',
     content: 'CONFIDENTIAL: Project Blue Book',
     x: 636,
@@ -29,7 +29,7 @@ export const INITIAL_NOTES: Note[] = [
     scale: 1
   },
   {
-    id: 'n3',
+    id: 3,
     type: 'note',
     content: 'Call the precinct at 0800 hours. Don\'t trust the rookie.',
     x: 530,
@@ -44,7 +44,7 @@ export const INITIAL_NOTES: Note[] = [
     scale: 1
   },
   {
-    id: 'n4',
+    id: 4,
     type: 'scrap',
     content: '...found on 4th street...',
     x: 940,
@@ -57,7 +57,7 @@ export const INITIAL_NOTES: Note[] = [
     scale: 1
   },
   {
-    id: 'm1',
+    id: 5,
     type: 'marker',
     content: '1',
     x: 1203,
@@ -75,12 +75,12 @@ export const INITIAL_NOTES: Note[] = [
 
 export const INITIAL_CONNECTIONS: Connection[] = [
   {
-    id: 'conn-1',
-    sourceId: 'n3',
-    targetId: 'm1',
+    id: 1,
+    sourceId: 3,
+    targetId: 5,
     color: '#D43939' // Red
   }
 ];
 
-export const NODE_WIDTH = 256; 
+export const NODE_WIDTH = 256;
 export const PIN_OFFSET_Y = -8;
