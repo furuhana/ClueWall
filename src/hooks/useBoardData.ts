@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { Note, Connection } from '../types';
 import { deleteImageFromDrive } from '../api';
-import { mapDbToNote, mapNoteToDb } from '../utils';
+import { mapDbToNote, mapNoteToDb, mapDbToConnection, mapConnectionToDb } from '../utils';
 
 export const useBoardData = (
   activeBoardId: number | undefined,
@@ -40,8 +40,8 @@ export const useBoardData = (
       }
 
       if (connsData) {
-        const uniqueConns = Array.from(new Map(connsData.map((item: any) => [item.id, item])).values());
-        setConnections(uniqueConns as any);
+        const uniqueConns = Array.from(new Map(connsData.map((item: any) => [item.id, mapDbToConnection(item)])).values());
+        setConnections(uniqueConns);
       } else {
         setConnections([]);
       }
@@ -69,9 +69,13 @@ export const useBoardData = (
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'connections', filter: `board_id=eq.${activeBoardId}` }, (payload) => {
         if (payload.eventType === 'INSERT') {
-          setConnections(prev => prev.some(c => c.id === payload.new.id) ? prev : [...prev, payload.new as Connection]);
+          const newConn = mapDbToConnection(payload.new);
+          setConnections(prev => prev.some(c => c.id === newConn.id) ? prev : [...prev, newConn]);
         }
-        else if (payload.eventType === 'UPDATE') { const newConn = payload.new as Connection; setConnections(prev => prev.map(c => c.id === newConn.id ? newConn : c)); }
+        else if (payload.eventType === 'UPDATE') {
+          const newConn = mapDbToConnection(payload.new);
+          setConnections(prev => prev.map(c => c.id === newConn.id ? newConn : c));
+        }
         else if (payload.eventType === 'DELETE') setConnections(prev => prev.filter(c => c.id !== payload.old.id));
       })
       .subscribe();
@@ -86,7 +90,7 @@ export const useBoardData = (
       await supabase.from('notes').upsert(notesToSave);
     }
     if (changedConns.length > 0) {
-      const connsToSave = changedConns.map(c => ({ ...c, board_id: activeBoardId }));
+      const connsToSave = changedConns.map(c => mapConnectionToDb({ ...c, board_id: activeBoardId }));
       await supabase.from('connections').upsert(connsToSave);
     }
   }, [activeBoardId]);

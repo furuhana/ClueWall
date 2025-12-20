@@ -95,3 +95,29 @@ export const mapNoteToDb = (note: Partial<Note>): any => {
 
   return dbObj;
 };
+
+export const mapDbToConnection = (dbRecord: any): Connection => {
+  return {
+    id: dbRecord.id,
+    sourceId: Number(dbRecord.source_id),
+    targetId: Number(dbRecord.target_id),
+    board_id: dbRecord.board_id,
+    color: dbRecord.color
+  };
+};
+
+export const mapConnectionToDb = (conn: Partial<Connection>): any => {
+  const dbObj: any = {
+    source_id: Number(conn.sourceId),
+    target_id: Number(conn.targetId),
+    board_id: Number(conn.board_id),
+    color: conn.color
+  };
+
+  // Only include ID if it's a valid positive number
+  if (conn.id && typeof conn.id === 'number' && conn.id > 0) {
+    dbObj.id = conn.id;
+  }
+
+  return dbObj;
+};
