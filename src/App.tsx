@@ -208,7 +208,7 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
             // 🟢 CONFIRM NO "id" KEY IN PAYLOAD. NO MANUAL "columns" parameter.
             const { data, error } = await supabase.from('notes').insert([dbPayload]).select().single();
             if (error) {
-                console.error("Supabase Insert Error:", error);
+                console.error("Supabase Insert Error (Full):", JSON.stringify(error, null, 2));
                 if ((error as any).details) console.error("Error Details:", (error as any).details);
                 if ((error as any).hint) console.error("Error Hint:", (error as any).hint);
                 throw error;

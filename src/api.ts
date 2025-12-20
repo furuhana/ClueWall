@@ -42,7 +42,9 @@ export const uploadToGAS = async (payload: {
   const GAS_URL = 'https://script.google.com/macros/s/AKfycbxtCyRhNQ6iX5DJDQd0mmNWu3b6TVxTtLCut2FRyd5O-H7VYvyDGJQEhJfzEczz1PBN4w/exec';
 
   try {
-    console.log("正在上传图片到 Google Drive...", { ...payload, base64Data: '***' });
+    const logPayload = { ...payload, base64Data: '***TRUNCATED***' };
+    console.log("🚀 [GAS] Sending Request to Google Apps Script...");
+    console.dir(logPayload, { depth: null }); // Deep log the structure
 
     const response = await fetch(GAS_URL, {
       method: 'POST',
@@ -55,13 +57,25 @@ export const uploadToGAS = async (payload: {
       })
     });
 
-    const result = await response.json();
-    console.log("GAS Upload Response:", result);
+    console.log(`📡 [GAS] Response Status: ${response.status} ${response.statusText}`);
+
+    const text = await response.text();
+    console.log("📝 [GAS] Raw Response Body:", text);
+
+    let result;
+    try {
+      result = JSON.parse(text);
+      console.log("✅ [GAS] Parsed JSON Response:", result);
+    } catch (e) {
+      console.warn("⚠️ [GAS] Response was not JSON. Using raw text as message.");
+      result = { status: 'unknown', message: text };
+    }
 
     return result;
 
-  } catch (error) {
-    console.error('GAS Upload Error:', error);
+  } catch (error: any) {
+    console.error('❌ [GAS] Upload Network Error:', error);
+    if (error.stack) console.error(error.stack);
     throw error;
   }
 };
