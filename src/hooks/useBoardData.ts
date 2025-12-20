@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { Note, Connection } from '../types';
 import { deleteImageFromDrive } from '../api';
+import { mapDbToNote, mapNoteToDb } from '../utils';
 
 export const useBoardData = (
   activeBoardId: number | undefined,
@@ -29,9 +30,10 @@ export const useBoardData = (
       const { data: connsData } = await supabase.from('connections').select('*').eq('board_id', activeBoardId);
 
       if (notesData) {
-        const uniqueNotes = Array.from(new Map(notesData.map((item: any) => [item.id, item])).values());
-        setNotes(uniqueNotes as any);
-        const maxZ = notesData.reduce((max: number, n: any) => Math.max(max, n.zIndex || 0), 10);
+        // Map DB record -> Note object
+        const uniqueNotes = Array.from(new Map(notesData.map((item: any) => [item.id, mapDbToNote(item)])).values());
+        setNotes(uniqueNotes);
+        const maxZ = uniqueNotes.reduce((max: number, n: any) => Math.max(max, n.zIndex || 0), 10);
         setMaxZIndex(maxZ);
       } else {
         setNotes([]);
@@ -51,9 +53,10 @@ export const useBoardData = (
     const channel = supabase.channel(`detective-wall-changes-${activeBoardId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `board_id=eq.${activeBoardId}` }, (payload) => {
         if (payload.eventType === 'INSERT') {
-          setNotes(prev => prev.some(n => n.id === payload.new.id) ? prev : [...prev, payload.new as Note]);
+          const newNote = mapDbToNote(payload.new);
+          setNotes(prev => prev.some(n => n.id === newNote.id) ? prev : [...prev, newNote]);
         } else if (payload.eventType === 'UPDATE') {
-          const newNote = payload.new as Note;
+          const newNote = mapDbToNote(payload.new);
           setNotes(prev => prev.map(n => {
             // Conflict Resolution
             const current = interactionRef.current;
@@ -79,7 +82,7 @@ export const useBoardData = (
   const saveToCloud = useCallback(async (changedNotes: Note[], changedConns: Connection[]) => {
     if (!activeBoardId) return;
     if (changedNotes.length > 0) {
-      const notesToSave = changedNotes.map(n => ({ ...n, board_id: activeBoardId }));
+      const notesToSave = changedNotes.map(n => mapNoteToDb({ ...n, board_id: activeBoardId }));
       await supabase.from('notes').upsert(notesToSave);
     }
     if (changedConns.length > 0) {
