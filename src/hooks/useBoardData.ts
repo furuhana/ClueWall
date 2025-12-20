@@ -13,7 +13,7 @@ export const useBoardData = (
   const [isLoading, setIsLoading] = useState(true);
   const [maxZIndex, setMaxZIndex] = useState<number>(10);
 
-  // 实时订阅
+  // 1. Initial Data Fetch
   useEffect(() => {
     if (activeBoardId === undefined || activeBoardId === null) {
       setNotes([]);
@@ -24,7 +24,6 @@ export const useBoardData = (
 
     const fetchInitialData = async () => {
       console.log("当前加载的画板ID:", activeBoardId);
-      // 1. Query Filter
       const { data: notesData } = await supabase.from('notes').select('*').eq('board_id', activeBoardId);
       const { data: connsData } = await supabase.from('connections').select('*').eq('board_id', activeBoardId);
 
@@ -46,38 +45,92 @@ export const useBoardData = (
       setIsLoading(false);
     };
     fetchInitialData();
+  }, [activeBoardId]);
 
-    // 2. Subscription Filter
-    const channel = supabase.channel(`detective-wall-changes-${activeBoardId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `board_id=eq.${activeBoardId}` }, (payload) => {
-        if (payload.eventType === 'INSERT') {
-          const newNote = mapDbToNote(payload.new);
-          setNotes(prev => prev.some(n => n.id === newNote.id) ? prev : [...prev, newNote]);
-        } else if (payload.eventType === 'UPDATE') {
-          const newNote = mapDbToNote(payload.new);
-          setNotes(prev => prev.map(n => {
-            // Conflict Resolution
-            const current = interactionRef.current;
-            if (n.id === newNote.id && (current.draggingId === n.id || current.resizingId === n.id || current.rotatingId === n.id)) {
-              return n;
-            }
-            return n.id === newNote.id ? newNote : n;
-          }));
-        } else if (payload.eventType === 'DELETE') setNotes(prev => prev.filter(n => n.id !== payload.old.id));
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'connections', filter: `board_id=eq.${activeBoardId}` }, (payload) => {
-        if (payload.eventType === 'INSERT') {
-          const newConn = mapDbToConnection(payload.new);
-          setConnections(prev => prev.some(c => c.id === newConn.id) ? prev : [...prev, newConn]);
+  // ------------------------------------------------------------
+  // ✅ 核心：Realtime 实时订阅 (手动植入版 - Adapted)
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (!activeBoardId) return;
+
+    console.log("📡 正在建立实时连接通道...", activeBoardId);
+
+    const channel = supabase
+      .channel(`board_realtime_${activeBoardId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // 监听所有事件：增、删、改
+          schema: 'public',
+          table: 'notes',
+          filter: `board_id=eq.${activeBoardId}`, // 只监听当前画板
+        },
+        (payload) => {
+          console.log('🔔 收到笔记变更:', payload);
+          const { eventType, new: newRecord, old: oldRecord } = payload;
+
+          if (eventType === 'INSERT') {
+            // 别人加了新笔记 -> 我这边也要加
+            setNotes((prev) => {
+              if (prev.find((n) => n.id === newRecord.id)) return prev; // 防重
+              return [...prev, mapDbToNote(newRecord)];
+            });
+          } else if (eventType === 'UPDATE') {
+            // 别人动了笔记 -> 我这边也要动
+            setNotes((prev) =>
+              prev.map((n) => {
+                if (n.id === newRecord.id) {
+                  // Conflict Resolution: Don't update if I'm dragging this specific note
+                  const current = interactionRef.current;
+                  if (current.draggingId === n.id || current.resizingId === n.id || current.rotatingId === n.id) {
+                    return n;
+                  }
+                  return mapDbToNote(newRecord);
+                }
+                return n;
+              })
+            );
+          } else if (eventType === 'DELETE') {
+            // 别人删了笔记 -> 我这边也要删
+            setNotes((prev) => prev.filter((n) => n.id !== oldRecord.id));
+          }
         }
-        else if (payload.eventType === 'UPDATE') {
-          const newConn = mapDbToConnection(payload.new);
-          setConnections(prev => prev.map(c => c.id === newConn.id ? newConn : c));
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'connections', // 别忘了连线也要监听！
+          filter: `board_id=eq.${activeBoardId}`,
+        },
+        (payload) => {
+          console.log('🕸️ 收到连线变更:', payload);
+          const { eventType, new: newRecord, old: oldRecord } = payload;
+
+          if (eventType === 'INSERT') {
+            setConnections((prev) => {
+              if (prev.find((c) => c.id === newRecord.id)) return prev;
+              return [...prev, mapDbToConnection(newRecord)];
+            });
+          } else if (eventType === 'UPDATE') {
+            setConnections((prev) =>
+              prev.map((c) => (c.id === newRecord.id ? mapDbToConnection(newRecord) : c))
+            );
+          } else if (eventType === 'DELETE') {
+            setConnections((prev) => prev.filter((c) => c.id !== oldRecord.id));
+          }
         }
-        else if (payload.eventType === 'DELETE') setConnections(prev => prev.filter(c => c.id !== payload.old.id));
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+      )
+      .subscribe((status) => {
+        console.log(`📡 订阅状态: ${status}`);
+      });
+
+    // 卸载组件时断开连接，防止内存泄漏
+    return () => {
+      console.log("🔌 断开实时连接");
+      supabase.removeChannel(channel);
+    };
   }, [activeBoardId, interactionRef]);
 
   // 3. Save Injection
