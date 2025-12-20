@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Note, DragOffset } from '../types';
 import { getNoteDimensions } from '../utils';
 
@@ -15,13 +15,16 @@ export const useInteractions = (
     saveToCloud: (notes: Note[], connections: any[]) => Promise<void>,
     setMaxZIndex: React.Dispatch<React.SetStateAction<number>>,
     maxZIndex: number,
-    connections: any[]
+    connections: any[],
+    selectedIds: Set<number>,
+    setSelectedIds: React.Dispatch<React.SetStateAction<Set<number>>>,
+    onAddNote: (type: Note['type'], position: { x: number, y: number }) => void
 ) => {
     const [draggingId, setDraggingId] = useState<number | null>(null);
     const [rotatingId, setRotatingId] = useState<number | null>(null);
     const [resizingId, setResizingId] = useState<number | null>(null);
     const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
-    const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+    // selectedIds is now passed in
     const [transformStart, setTransformStart] = useState<TransformStartData | null>(null);
     const [ghostNote, setGhostNote] = useState<{ x: number; y: number; typeIndex: number } | null>(null);
     const lastDragPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -248,39 +251,12 @@ export const useInteractions = (
         if (!ghostNote) return;
 
         const type = NOTE_TYPES[ghostNote.typeIndex];
-        // Cannot generate ID here easily without async.
-        // We will return the intent to create, or make this invalid.
-        // Actually `useInteractions` owns `setNotes`.
-        // We really should move creation logic out.
-        // But for quick fix:
-        console.warn("Ghost note creation in useInteractions with numeric IDs is tricky. User 'addNote' pattern in App.tsx is better.");
-        // We will make a temp placeholder.
-        const id = -Date.now();
 
-        let width = 256; let height = 160;
-        if (type === 'photo') height = 280;
-        else if (type === 'dossier') height = 224;
-        else if (type === 'scrap') { width = 257; height = 50; }
-        else if (type === 'marker') { width = 30; height = 30; }
+        // Delegate creation to App.tsx
+        onAddNote(type, { x: ghostNote.x, y: ghostNote.y });
 
-        let content = 'New Clue';
-        if (type === 'photo') content = 'New Evidence';
-        else if (type === 'scrap') content = 'Scrap note...';
-        else if (type === 'marker') { const existingMarkers = notes.filter(n => n.type === 'marker'); content = (existingMarkers.length + 1).toString(); }
-
-        const newNote: Note = {
-            id, type, content, x: ghostNote.x, y: ghostNote.y,
-            zIndex: maxZIndex + 1, rotation: (Math.random() * 10) - 5,
-            fileId: type === 'photo' ? '/photo_1.png' : undefined, hasPin: false, scale: 1, width, height
-        };
-
-        const nextNotes = [...notes, newNote];
-        setMaxZIndex(prev => prev + 1);
-        setNotes(nextNotes);
-        setSelectedIds(new Set([id]));
-        saveToCloud(nextNotes, connections);
         setGhostNote(null);
-    }, [ghostNote, maxZIndex, notes, setMaxZIndex, setNotes, saveToCloud, connections]);
+    }, [ghostNote, onAddNote, NOTE_TYPES]);
 
     return {
         draggingId, setDraggingId,

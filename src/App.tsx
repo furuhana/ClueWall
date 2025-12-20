@@ -140,12 +140,15 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
     } = usePinning(notes, setNotes, connections, setConnections, saveToCloud, view, toWorld);
 
     // 6. Interactions
+    const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+    // Interactions Hook
     const {
         draggingId, setDraggingId,
         rotatingId, setRotatingId,
         resizingId, setResizingId,
         selectionBox, setSelectionBox,
-        selectedIds, setSelectedIds,
+        // selectedIds removed here as it is passed in
         transformStart, setTransformStart,
         ghostNote, setGhostNote,
         handleNodeMouseDown, handleRotateStart, handleResizeStart,
@@ -153,7 +156,7 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
         handleInteractionMouseMove, handleInteractionMouseUp,
         confirmGhostCreation,
         NOTE_TYPES
-    } = useInteractions(notes, setNotes, view, toWorld, saveToCloud, setMaxZIndex, maxZIndex, connections);
+    } = useInteractions(notes, setNotes, view, toWorld, saveToCloud, setMaxZIndex, maxZIndex, connections, selectedIds, setSelectedIds, addNote);
 
     // Sync interactionRef
     useEffect(() => {
@@ -195,12 +198,19 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
         dataDeleteNote(id);
     };
 
-    const addNote = async (type: Note['type']) => {
-        const centerX = window.innerWidth / 2;
-        const centerY = window.innerHeight / 2;
-        const worldPos = toWorld(centerX, centerY);
-        const x = worldPos.x + (Math.random() * 100 - 50);
-        const y = worldPos.y + (Math.random() * 100 - 50);
+    const addNote = async (type: Note['type'], position?: { x: number, y: number }) => {
+        let x: number, y: number;
+
+        if (position) {
+            x = Number(position.x);
+            y = Number(position.y);
+        } else {
+            const centerX = window.innerWidth / 2;
+            const centerY = window.innerHeight / 2;
+            const worldPos = toWorld(centerX, centerY);
+            x = worldPos.x + (Math.random() * 100 - 50);
+            y = worldPos.y + (Math.random() * 100 - 50);
+        }
 
         let width = 256; let height = 160;
         if (type === 'photo') height = 280;
@@ -219,18 +229,33 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
             return;
         }
 
+        if (!session?.user?.id) {
+            console.error("No user session found for addNote");
+            return;
+        }
+
         // Prepare object for stats, but ID will be assigned by DB
         // We need to INSERT to DB first to get ID.
         // We do this optimistically or wait? Waiting ensures valid ID.
 
         const partialNote = {
-            type, content, x, y,
-            zIndex: maxZIndex + 1, rotation: (Math.random() * 10) - 5,
-            fileId: type === 'photo' ? '/photo_1.png' : undefined, hasPin: false, scale: 1, width, height,
-            board_id: boardIdToUse
+            type,
+            content,
+            x,
+            y,
+            width,
+            height,
+            scale: 1,
+            zIndex: maxZIndex + 1,
+            rotation: (Math.random() * 10) - 5,
+            fileId: type === 'photo' ? '/photo_1.png' : undefined,
+            hasPin: false,
+            board_id: Number(boardIdToUse), // Ensure number
+            user_id: session.user.id // RLS Compliance
         };
 
         try {
+            // Explicitly removing id if it was somehow in partialNote (it isn't, but for safety in future refactors)
             const { data, error } = await supabase.from('notes').insert([partialNote]).select().single();
             if (error) throw error;
             if (data) {
