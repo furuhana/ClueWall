@@ -269,7 +269,7 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
     const { isMusicPlaying, toggleMusic, audioRef } = useAudio();
 
     // 8. File Drop
-    const { isDraggingFile, handleDragEnter, handleDragLeave, handleDragOver, handleDrop } = useFileDrop(toWorld, setNotes, maxZIndex, setMaxZIndex, saveToCloud, activeBoardId);
+    const { isDraggingFile, handleDragEnter, handleDragLeave, handleDragOver, handleDrop, uploadStatus } = useFileDrop(toWorld, setNotes, maxZIndex, setMaxZIndex, saveToCloud, activeBoardId);
 
     // 9. Local State & Wrappers
     const boardRef = useRef<HTMLDivElement>(null);
@@ -441,27 +441,52 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
 
             {isLoading && <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-3 bg-black/70 backdrop-blur-md text-white/90 px-4 py-2 rounded-full border border-white/10 shadow-lg pointer-events-none"><Loader2 className="animate-spin text-yellow-400" size={16} /><span className="font-mono text-xs tracking-wider">SYNCING...</span></div>}
             {!isLoading && (
-                <div className="absolute bottom-4 left-4 z-[12000] flex items-center gap-4 pointer-events-none select-none">
-                    {/* 基础连接指示器 */}
-                    <div className="flex items-center gap-2 opacity-50 transition-opacity hover:opacity-100">
-                        <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
-                        <span className="font-mono text-[10px] text-white/70 tracking-widest">SECURE CONN.</span>
-                    </div>
+                <div className="absolute bottom-4 left-4 z-[12000] flex flex-col gap-2 pointer-events-none select-none font-sans">
+                    {/* 1. 文件上传状态 (优先级高，有上传时显示) */}
+                    {uploadStatus === 'uploading' && (
+                        <div className="flex items-center gap-2 bg-blue-600/90 text-white px-3 py-1.5 rounded-md shadow-lg backdrop-blur animate-in slide-in-from-bottom-2">
+                            <Loader2 size={16} className="animate-spin" />
+                            <span className="text-xs font-bold tracking-wider">正在上传...</span>
+                        </div>
+                    )}
+                    {uploadStatus === 'success' && (
+                        <div className="flex items-center gap-2 bg-green-600/90 text-white px-3 py-1.5 rounded-md shadow-lg backdrop-blur animate-in fade-in zoom-in duration-300">
+                            <Check size={16} strokeWidth={3} />
+                            <span className="text-xs font-bold tracking-wider">上传完成</span>
+                        </div>
+                    )}
+                    {uploadStatus === 'error' && (
+                        <div className="flex items-center gap-2 bg-red-600/90 text-white px-3 py-1.5 rounded-md shadow-lg backdrop-blur animate-pulse">
+                            <AlertTriangle size={16} />
+                            <span className="text-xs font-bold tracking-wider">上传失败</span>
+                        </div>
+                    )}
+                    {/* 2. 数据库同步状态 (移动/缩放时显示) */}
+                    <div className="flex items-center gap-3 bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-full border border-white/10 transition-all">
+                        {/* 基础连接点 (常驻) */}
+                        <div className={`w-2 h-2 rounded-full transition-colors duration-500 ${syncStatus === 'error' ? 'bg-red-500 shadow-[0_0_8px_red]' : 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]'}`} />
 
-                    {/* 同步成功 (绿色打勾) */}
-                    {syncStatus === 'success' && (
-                        <div className="flex items-center gap-2 text-green-400 animate-in fade-in slide-in-from-left-2 duration-500">
-                            <Check size={14} strokeWidth={3} />
-                            <span className="font-mono text-[10px] tracking-widest font-bold shadow-green-glow">SAVED</span>
+                        {/* 文字状态反馈 */}
+                        <div className="flex items-center">
+                            {syncStatus === 'idle' && (
+                                <span className="text-[10px] text-white/50 tracking-widest">安全连接就绪</span>
+                            )}
+
+                            {syncStatus === 'success' && (
+                                <div className="flex items-center gap-1.5 text-green-400 animate-in fade-in slide-in-from-left-1">
+                                    <Check size={12} strokeWidth={3} />
+                                    <span className="text-[10px] font-bold tracking-widest">已保存</span>
+                                </div>
+                            )}
+
+                            {syncStatus === 'error' && (
+                                <div className="flex items-center gap-1.5 text-red-400 animate-pulse">
+                                    <AlertTriangle size={12} />
+                                    <span className="text-[10px] font-bold tracking-widest">同步失败</span>
+                                </div>
+                            )}
                         </div>
-                    )}
-                    {/* 同步失败 (红色警示) */}
-                    {syncStatus === 'error' && (
-                        <div className="flex items-center gap-2 text-red-500 animate-pulse">
-                            <AlertTriangle size={14} strokeWidth={2} />
-                            <span className="font-mono text-[10px] tracking-widest font-bold">SYNC ERROR</span>
-                        </div>
-                    )}
+                    </div>
                 </div>
             )}
 
