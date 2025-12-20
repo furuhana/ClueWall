@@ -25,12 +25,10 @@ export const useBoardData = (
     const fetchInitialData = async () => {
       console.log("当前加载的画板ID:", activeBoardId);
       // 1. Query Filter
-
       const { data: notesData } = await supabase.from('notes').select('*').eq('board_id', activeBoardId);
       const { data: connsData } = await supabase.from('connections').select('*').eq('board_id', activeBoardId);
 
       if (notesData) {
-        // Map DB record -> Note object
         const uniqueNotes = Array.from(new Map(notesData.map((item: any) => [item.id, mapDbToNote(item)])).values());
         setNotes(uniqueNotes);
         const maxZ = uniqueNotes.reduce((max: number, n: any) => Math.max(max, n.zIndex || 0), 10);
@@ -99,13 +97,8 @@ export const useBoardData = (
     if (notesToUpdate.length > 0) {
       await Promise.all(notesToUpdate.map(async (n) => {
         const rawDb = mapNoteToDb({ ...n, board_id: activeBoardId });
-
-        // 🟢 SANITIZE: Removes ID and enforces types
         const payload = sanitizeNoteForInsert(rawDb);
-
-        // 🛡️ Double Check: Ensure ID is gone
         if ('id' in payload) delete (payload as any).id;
-
         await supabase.from('notes').update(payload).eq('id', n.id);
       }));
     }
@@ -121,49 +114,37 @@ export const useBoardData = (
       await supabase.from('notes').insert(payloads);
     }
 
-    // --- CONNECTIONS HANDLING ---
-    const connsToUpdate: Connection[] = [];
-    const connsToInsert: Connection[] = [];
-
-    changedConns.forEach(c => {
-      if (c.id && c.id > 0) connsToUpdate.push(c);
-      else connsToInsert.push(c);
-    });
-
-    if (connsToUpdate.length > 0) {
-      await Promise.all(connsToUpdate.map(async (c) => {
-        const rawDb = mapConnectionToDb({ ...c, board_id: activeBoardId });
-        // 🟢 SANITIZE
-        const payload = sanitizeConnectionForInsert(rawDb);
-        // 🛡️ Double Check
-        if ('id' in payload) delete (payload as any).id;
-
-        await supabase.from('connections').update(payload).eq('id', c.id);
-      }));
-    }
-
-    if (connsToInsert.length > 0) {
-      const payloads = connsToInsert.map(c => {
+    // --- CONNECTIONS HANDLING (Unified Upsert) ---
+    if (changedConns.length > 0) {
+      const payloads = changedConns.map(c => {
         const rawDb = mapConnectionToDb({ ...c, board_id: activeBoardId });
         const payload = sanitizeConnectionForInsert(rawDb);
+        // 🟢 CRITICAL: Remove 'id' so Supabase doesn't try to update by PK, 
+        // allowing onConflict to work on (source, target).
         if ('id' in payload) delete (payload as any).id;
         return payload;
       });
-      const { error: connError } = await supabase.from('connections').insert(payloads);
+
+      // 🚀 UPSERT: Insert or Update based on (source_id, target_id)
+      const { error: connError } = await supabase
+        .from('connections')
+        .upsert(payloads, {
+          onConflict: 'source_id, target_id',
+          ignoreDuplicates: false
+        });
+
       if (connError) {
-        console.error("🚨 【连接线拒收报告】", {
+        console.error("🚨 【连接线 Upsert 失败】", {
           "错误信息": connError.message,
           "详情": connError.details,
           "Hint": connError.hint,
-          "发送的数据": payloads
+          "Payload": payloads
         });
       }
     }
   }, [activeBoardId]);
 
   const deleteFromCloud = useCallback(async (noteId?: number, connId?: number) => {
-    // Note: Deletion usually doesn't require board_id if ID is unique, but RLS might require it. 
-    // User asked NOT to modify deletion logic, so keeping as is (deleting by ID).
     if (noteId) await supabase.from('notes').delete().eq('id', noteId);
     if (connId) await supabase.from('connections').delete().eq('id', connId);
   }, []);
@@ -193,7 +174,6 @@ export const useBoardData = (
     if (window.confirm("Burn all evidence?")) {
       setNotes([]);
       setConnections([]);
-      // Ensure we only clear CURRENT board
       await supabase.from('notes').delete().eq('board_id', activeBoardId);
       await supabase.from('connections').delete().eq('board_id', activeBoardId);
     }
