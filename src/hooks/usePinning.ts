@@ -58,18 +58,29 @@ export const usePinning = (
         e.stopPropagation();
         if (isPinDragRef.current) { isPinDragRef.current = false; return; }
         if (isPinMode) { setIsPinMode(false); setConnectingNodeId(id); return; }
+
         if (connectingNodeId === null) {
             setConnectingNodeId(id);
         } else {
             if (connectingNodeId !== id) {
-                const nextConns = [...connections];
-                const exists = nextConns.some(c => (c.sourceId === connectingNodeId && c.targetId === id) || (c.sourceId === id && c.targetId === connectingNodeId));
-                if (!exists) {
-                    // Connections need IDs too. Temp ID until we fully async it.
+                // 🔍 Check for existing connection (Bidirectional)
+                const existingConn = connections.find(c =>
+                    (c.sourceId === connectingNodeId && c.targetId === id) ||
+                    (c.sourceId === id && c.targetId === connectingNodeId)
+                );
+
+                if (existingConn) {
+                    // 🔄 UPDATE: If exists, refresh color (or just ping it)
+                    const updatedConn = { ...existingConn, color: '#D43939' };
+                    // State update with map
+                    setConnections(prev => prev.map(c => c.id === existingConn.id ? updatedConn : c));
+                    // Cloud update (Only send the modified one)
+                    saveToCloud([], [updatedConn]);
+                } else {
+                    // ➕ CREATE: New connection
                     const newConn = { id: -Date.now(), sourceId: connectingNodeId, targetId: id, color: '#D43939' };
-                    const finalConns = [...nextConns, newConn];
-                    setConnections(finalConns);
-                    saveToCloud(notes, finalConns);
+                    setConnections(prev => [...prev, newConn]);
+                    saveToCloud([], [newConn]);
                 }
             }
             setConnectingNodeId(null);
@@ -105,14 +116,36 @@ export const usePinning = (
 
         if (connectingNodeId) {
             if (connectingNodeId === id) return true;
+
+            const pinX = w / 2 + (unrotatedDx / view.zoom);
+            const pinY = h / 2 + (unrotatedDy / view.zoom);
+            const updatePin = (n: Note) => ({ ...n, hasPin: true, pinX, pinY });
+
+            // Update Note (Target)
             const nextNotes = notes.map((n) => n.id === id ? updatePin(n) : n);
-            let nextConns = connections;
-            const exists = connections.some(c => (c.sourceId === connectingNodeId && c.targetId === id) || (c.sourceId === id && c.targetId === connectingNodeId));
-            if (!exists) { nextConns = [...connections, { id: -Date.now(), sourceId: connectingNodeId, targetId: id, color: '#D43939' }]; }
             setNotes(nextNotes);
-            setConnections(nextConns);
+
+            // 🔍 Check connection
+            const existingConn = connections.find(c =>
+                (c.sourceId === connectingNodeId && c.targetId === id) ||
+                (c.sourceId === id && c.targetId === connectingNodeId)
+            );
+
+            if (existingConn) {
+                // 🔄 UPDATE
+                const updatedConn = { ...existingConn, color: '#D43939' };
+                setConnections(prev => prev.map(c => c.id === existingConn.id ? updatedConn : c));
+                // Save both: Note updated (pin) + Connection updated
+                saveToCloud(nextNotes.filter(n => n.id === id), [updatedConn]);
+            } else {
+                // ➕ CREATE
+                const newConn = { id: -Date.now(), sourceId: connectingNodeId, targetId: id, color: '#D43939' };
+                setConnections(prev => [...prev, newConn]);
+                // Save both: Note updated (pin) + New Connection
+                saveToCloud(nextNotes.filter(n => n.id === id), [newConn]);
+            }
+
             setConnectingNodeId(null);
-            saveToCloud(nextNotes, nextConns);
             return true;
         }
         return false;
