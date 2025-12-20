@@ -84,11 +84,12 @@ export const useFileDrop = (
             if (!gasResponse) return null; // Upload failure logic
 
             // 🟢 DETERMINE FILE ID (URL)
-            // If no-cors prevents reading response, we might not have a URL.
-            // Fallback to local object URL for immediate display, but warn for DB.
+            // Expecting real URL from GAS now
             const fileId = gasResponse.fileUrl || URL.createObjectURL(file);
-            // Note: If it's a blob URL, it won't work for other users. 
-            // This is a limitation of no-cors mode requested by user.
+
+            if (!gasResponse.fileUrl) {
+                console.warn("GAS did not return a URL. Using blob URL temporarily.");
+            }
 
             return new Promise<Note>((resolve, reject) => {
                 const img = new Image();
@@ -110,7 +111,7 @@ export const useFileDrop = (
                     const partialNote: Partial<Note> = {
                         type: 'evidence' as any,
                         content: file.name,
-                        file_id: gasResponse.fileUrl ? fileId : (file.name + " (Pending URL)"), // DB needs persistent string
+                        file_id: fileId, // Should be persistent URL now
                         x: dropX - (finalWidth / 2) + (index * 20),
                         y: dropY - (finalHeight / 2) + (index * 20),
                         zIndex: currentZ,

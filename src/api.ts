@@ -44,12 +44,8 @@ export const uploadToGAS = async (payload: {
   try {
     console.log("正在上传图片到 Google Drive...", { ...payload, base64Data: '***' });
 
-    await fetch(GAS_URL, {
+    const response = await fetch(GAS_URL, {
       method: 'POST',
-      mode: 'no-cors', // 💡 注意：GAS 跨域通常需要 no-cors，但会导致无法读取 response body
-      headers: {
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({
         userId: payload.userId,
         userName: payload.userName,
@@ -59,8 +55,10 @@ export const uploadToGAS = async (payload: {
       })
     });
 
-    // 由于 no-cors 模式下无法读取返回结果，我们假设只要没崩就是成功
-    return { status: 'success', message: 'Upload triggered' };
+    const result = await response.json();
+    console.log("GAS Upload Response:", result);
+
+    return result;
 
   } catch (error) {
     console.error('GAS Upload Error:', error);

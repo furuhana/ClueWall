@@ -59,14 +59,16 @@ const EditModal: React.FC<EditModalProps> = ({ note, onSave, onClose }) => {
         });
 
         if (result && result.status === 'success') {
-          // Use local URL for immediate preview since GAS (no-cors) gives no URL
-          const localUrl = URL.createObjectURL(file);
-          setPreviewImage(localUrl);
-          // Note: Update parent component about the change if needed for persistence? 
-          // The actual persistent URL is missing. Use filename as placeholder if needed in handleSubmit?
-          // handleSubmit uses previewImage state.
-          // If handleSubmit saves this localUrl to DB, it will break later.
-          // Be aware.
+          // 🟢 GET REAL URL FROM GAS RESPONSE
+          if (result.fileUrl) {
+            setPreviewImage(result.fileUrl);
+            console.log("Image uploaded, URL:", result.fileUrl);
+          } else {
+            // Fallback if URL missing (shouldn't happen with updated GAS)
+            const localUrl = URL.createObjectURL(file);
+            setPreviewImage(localUrl);
+            alert("Warning: Upload successful but no URL returned. Using local preview.");
+          }
         } else {
           alert("上传失败 (CORS Error)。请检查 Google Apps Script 部署权限是否为 'Anyone'。");
         }
