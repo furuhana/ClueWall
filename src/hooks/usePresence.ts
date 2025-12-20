@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { UserCursor } from '../types';
 import { getCursorColor } from '../utils';
 
-export const usePresence = (boardId: number | undefined, userName: string | null) => {
+export const usePresence = (boardId: number | undefined, userName: string | null, view?: { x: number; y: number; zoom: number }) => {
     const [otherUsers, setOtherUsers] = useState<UserCursor[]>([]);
     const [mySessionId] = useState(() => Math.random().toString(36).substr(2, 9));
     const channelRef = useRef<any>(null);
