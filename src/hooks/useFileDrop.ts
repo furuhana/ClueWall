@@ -12,7 +12,7 @@ export const useFileDrop = (
     saveToCloud: (notes: Note[], connections: any[]) => Promise<void>,
     activeBoardId: number | undefined
 ) => {
-    const [isDraggingFile, setIsDraggingFile] = useState(false);
+    const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
     const dragCounter = useRef(0);
 
     const handleDragEnter = useCallback((e: React.DragEvent) => {
@@ -58,6 +58,9 @@ export const useFileDrop = (
             alert("正在准备探员身份，请稍后拖入");
             return;
         }
+
+        // ✅ Start Upload Status
+        setUploadStatus('uploading');
 
         let currentZ = maxZIndex;
         const worldPos = toWorld(e.clientX, e.clientY);
@@ -186,12 +189,18 @@ export const useFileDrop = (
                 const newMaxZ = currentZ;
                 setMaxZIndex(newMaxZ);
                 setNotes(prev => [...prev, ...loadedNotes]);
+
+                // ✅ Upload Success Status
+                setUploadStatus('success');
+                setTimeout(() => setUploadStatus('idle'), 3000);
             }
         } catch (error: any) {
             console.error("🚨 Error processing dropped files (Catch Block):", error);
             if (error.details) console.error("Deep Details:", error.details);
             if (error.hint) console.error("Deep Hint:", error.hint);
             if (error.message) console.error("Error Message:", error.message);
+            // ❌ Upload Error Status
+            setUploadStatus('error');
         }
     }, [maxZIndex, toWorld, setNotes, setMaxZIndex, activeBoardId]); // Removed saveToCloud dependency as logic changed
 
@@ -200,6 +209,7 @@ export const useFileDrop = (
         handleDragEnter,
         handleDragLeave,
         handleDragOver,
-        handleDrop
+        handleDrop,
+        uploadStatus // Export Status
     };
 };
