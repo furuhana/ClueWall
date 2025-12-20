@@ -127,7 +127,11 @@ export const useFileDrop = (
 
                     // 🟢 ULTRA-STRICT: Sanitize for Insert
                     const dbPayload = sanitizeNoteForInsert(rawDbPayload);
-                    console.log("Dropping File Payload (Sanitized):", JSON.stringify(dbPayload));
+
+                    // 🛡️ PARANOID SAFETY: Delete ID again
+                    if ('id' in dbPayload) delete (dbPayload as any).id;
+
+                    console.log("Dropping File Payload (Sanitized & Checked):", JSON.stringify(dbPayload));
 
                     // Insert into DB
                     const { data, error } = await supabase.from('notes').insert([dbPayload]).select().single();

@@ -200,8 +200,12 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
         // 🟢 ULTRA-STRICT: Use Whitelist Sanitize
         const dbPayload = sanitizeNoteForInsert(rawDbPayload);
 
+        // 🛡️ PARANOID SAFETY: Delete ID again just in case reference leaked
+        if ('id' in dbPayload) delete (dbPayload as any).id;
+
         try {
-            console.log("Creating Note payload (Sanitized):", JSON.stringify(dbPayload));
+            console.log("Creating Note payload (Sanitized & Checked):", JSON.stringify(dbPayload));
+            // 🟢 CONFIRM NO "id" KEY IN PAYLOAD. NO MANUAL "columns" parameter.
             const { data, error } = await supabase.from('notes').insert([dbPayload]).select().single();
             if (error) {
                 console.error("Supabase Insert Error:", error);
