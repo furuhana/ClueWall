@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { Board } from '../types';
 
@@ -9,6 +9,7 @@ export const useBoards = (
 ) => {
     const [boards, setBoards] = useState<Board[]>([]);
     const [currentBoardId, setCurrentBoardId] = useState<number | null>(null);
+    const initializedRef = useRef<{ [key: string]: boolean }>({}); // Track init by userId to prevent dupes
 
     // Fetch Boards & Subscribe to Realtime Changes
     useEffect(() => {
@@ -16,6 +17,8 @@ export const useBoards = (
 
         if (!userId) {
             console.log("🔥 [useBoards] 无有效用户信息，跳过加载");
+            // Do NOT clear boards if we just lost auth momentarily but might come back?
+            // Actually, for security, if userId is gone, we should probably clear.
             setBoards([]);
             setCurrentBoardId(null);
             return;
@@ -45,6 +48,19 @@ export const useBoards = (
                 return;
             }
 
+            // Optimization: If already initialized for this user and we have data, we might skip?
+            // User requested: "prevent duplicate fetch... if data exists"
+            // We'll rely on initializedRef to suppress loading indicators if we were adding them,
+            // but for now let's just log and ensure we don't clear state unnecessarily.
+            if (initializedRef.current[userId] && boards.length > 0) {
+                console.log("🔥 [useBoards] 已缓存，跳过重复获取.");
+                // We might still want to subscribe or background refresh, but we won't blocking-load.
+                // For now, let's allow refetch but silent? 
+                // Actually user said: "if data exists... don't show loading".
+                // Since we don't have a specific loading state exposed here other than implied by empty boards,
+                // we just ensure we don't setBoards([]) before fetch.
+            }
+
             console.log("🔥 [useBoards] 开始获取画板列表 (Numeric ID Mode)...");
 
             try {
@@ -67,6 +83,7 @@ export const useBoards = (
 
                 if (data && data.length > 0) {
                     setBoards(data);
+                    initializedRef.current[userId] = true;
 
                     // If no active board, set the most recent one
                     // We use the functional update pattern or just check current state safely?

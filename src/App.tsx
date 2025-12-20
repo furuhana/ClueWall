@@ -567,8 +567,18 @@ const App: React.FC = () => {
     const [isCheckingProfile, setIsCheckingProfile] = useState(false);
     const [loginMessage, setLoginMessage] = useState<string | null>(null);
 
+    // Cache verified user IDs to prevent re-fetching on window focus
+    const verifiedUserIds = useRef<Set<string>>(new Set());
+
     // Strict Profile Verification Logic
     const verifyProfileStrict = async (userId: string) => {
+        // Optimization: If already verified, skip blocking UI
+        if (verifiedUserIds.current.has(userId)) {
+            console.log("✅ Profile cached, skipping strict check.");
+            setIsCheckingProfile(false); // Ensure loader is off
+            return;
+        }
+
         setIsCheckingProfile(true);
         try {
             // 1. Check if profile exists
@@ -590,6 +600,7 @@ const App: React.FC = () => {
                 setLoginMessage("AGENT STATUS: UNAUTHORIZED. 请联系管理员激活档案。");
                 await supabase.auth.signOut();
                 setSession(null);
+                verifiedUserIds.current.delete(userId); // Ensure not cached
                 return;
             }
 
@@ -606,6 +617,7 @@ const App: React.FC = () => {
 
             // Valid Profile & Role
             setUserRole(profile.role);
+            verifiedUserIds.current.add(userId); // Cache success
             setIsCheckingProfile(false);
 
         } catch (e) {
@@ -621,6 +633,7 @@ const App: React.FC = () => {
         setUserRole(null);
         setIsCheckingProfile(false);
         setLoginMessage(null);
+        verifiedUserIds.current.clear(); // Clear cache on logout
     };
 
     useEffect(() => {
