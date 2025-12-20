@@ -12,6 +12,7 @@ export const useFileDrop = (
     saveToCloud: (notes: Note[], connections: any[]) => Promise<void>,
     activeBoardId: number | undefined
 ) => {
+    const [isDraggingFile, setIsDraggingFile] = useState(false);
     const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
     const dragCounter = useRef(0);
 
