@@ -121,3 +121,20 @@ export const mapConnectionToDb = (conn: Partial<Connection>): any => {
 
   return dbObj;
 };
+
+/**
+ * 在执行数据库插入前清理对象，移除主键 ID 并确保类型正确 (Prevent auto-increment conflict)
+ */
+export const sanitizeNoteForInsert = (note: any) => {
+  // 1. 彻底剔除 id，让数据库自增主键接管
+  const { id, ...rest } = note;
+
+  // 2. 返回清理后的对象，确保 rotation 和坐标是数字类型
+  return {
+    ...rest,
+    rotation: Number(rest.rotation || 0),
+    scale: Number(rest.scale || 1),
+    x: Number(rest.x || 0),
+    y: Number(rest.y || 0)
+  };
+};
