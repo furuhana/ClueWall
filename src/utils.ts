@@ -126,15 +126,26 @@ export const mapConnectionToDb = (conn: Partial<Connection>): any => {
  * 在执行数据库插入前清理对象，移除主键 ID 并确保类型正确 (Prevent auto-increment conflict)
  */
 export const sanitizeNoteForInsert = (note: any) => {
-  // 1. 彻底剔除 id，让数据库自增主键接管
-  const { id, ...rest } = note;
+  // 1. 彻底剔除 id，让数据库自增主键接管 (Implicitly handled by not including it in the return object)
 
-  // 2. 返回清理后的对象，确保 rotation 和坐标是数字类型
+  // 2. Strict Whitelist & Type Coercion
   return {
-    ...rest,
-    rotation: Number(rest.rotation || 0),
-    scale: Number(rest.scale || 1),
-    x: Number(rest.x || 0),
-    y: Number(rest.y || 0)
+    board_id: Number(note.board_id),
+    user_id: note.user_id, // UUID string
+    x: Math.round(Number(note.x || 0)),
+    y: Math.round(Number(note.y || 0)),
+    width: note.width ? Math.round(Number(note.width)) : null,
+    height: note.height ? Math.round(Number(note.height)) : null,
+    title: note.title || null,
+    subtitle: note.subtitle || null,
+    content: note.content || '',
+    type: note.type,
+    file_id: note.file_id || null, // Ensure explicitly handled
+    is_pinned: Boolean(note.is_pinned), // Explicit boolean
+    pin_x: note.pin_x ? Math.round(Number(note.pin_x)) : null,
+    pin_y: note.pin_y ? Math.round(Number(note.pin_y)) : null,
+    z_index: Math.round(Number(note.z_index || 0)), // Integer
+    rotation: Number(Number(note.rotation || 0).toFixed(2)), // Number
+    scale: Number(note.scale || 1) // Number
   };
 };
