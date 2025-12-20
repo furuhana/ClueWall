@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { Note, Connection } from '../types';
 import { deleteImageFromDrive } from '../api';
-import { mapDbToNote, mapNoteToDb, mapDbToConnection, mapConnectionToDb } from '../utils';
+import { mapDbToNote, mapNoteToDb, mapDbToConnection, mapConnectionToDb, sanitizeNoteForInsert } from '../utils';
 
 export const useBoardData = (
   activeBoardId: number | undefined,
