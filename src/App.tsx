@@ -203,6 +203,8 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
             const { data, error } = await supabase.from('notes').insert([dbPayload]).select().single();
             if (error) {
                 console.error("Supabase Insert Error:", error);
+                if ((error as any).details) console.error("Error Details:", (error as any).details);
+                if ((error as any).hint) console.error("Error Hint:", (error as any).hint);
                 throw error;
             }
             if (data) {
@@ -213,8 +215,11 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
                 setSelectedIds(new Set([newNote.id]));
                 // Realtime sub will likely fire too, but duplicate check exists there.
             }
-        } catch (e) {
-            console.error("Failed to add note. Payload was:", dbPayload, e);
+        } catch (e: any) {
+            console.error("Failed to add note. Payload was:", dbPayload);
+            console.error("Full Error Object:", e);
+            if (e.details) console.error("Deep Details:", e.details);
+            if (e.hint) console.error("Deep Hint:", e.hint);
         }
     };
 

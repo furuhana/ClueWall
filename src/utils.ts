@@ -69,7 +69,7 @@ export const mapNoteToDb = (note: Partial<Note>): any => {
     content: note.content,
     title: note.title,
     subtitle: note.subtitle,
-    board_id: note.board_id,
+    board_id: Number(note.board_id), // Strict number
     file_id: note.file_id, // Direct pass-through
     has_pin: !!note.hasPin, // Strict boolean
     pin_x: note.pinX ? Math.round(Number(note.pinX)) : null,

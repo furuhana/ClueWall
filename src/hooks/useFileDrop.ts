@@ -104,6 +104,8 @@ export const useFileDrop = (
 
                     if (error) {
                         console.error("Failed to insert dropped file note:", error);
+                        if ((error as any).details) console.error("Error Details:", (error as any).details);
+                        if ((error as any).hint) console.error("Error Hint:", (error as any).hint);
                         reject(error);
                         return;
                     }
@@ -130,8 +132,10 @@ export const useFileDrop = (
                 setNotes(prev => [...prev, ...loadedNotes]);
                 // No need to call saveToCloud as we just inserted them.
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error processing dropped files:", error);
+            if (error.details) console.error("Deep Details:", error.details);
+            if (error.hint) console.error("Deep Hint:", error.hint);
         }
     }, [maxZIndex, toWorld, setNotes, setMaxZIndex, activeBoardId]); // Removed saveToCloud dependency as logic changed
 
