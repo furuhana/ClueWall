@@ -94,34 +94,24 @@ export const useFileDrop = (
             // Only use blob for temp rendering if needed, but we have real URL now.
             // We will use the real URL for saving dimensions too.
 
+            // 🟢 SAFETY WRAPPER: Image Dimension Loader
             return new Promise<Note>((resolve, reject) => {
-                const img = new Image();
-                img.src = fileId; // Use URL for loading dimensions
-                img.onload = async () => {
-                    const MAX_WIDTH = 300;
-                    let finalWidth = img.width;
-                    let finalHeight = img.height;
-                    if (finalWidth > MAX_WIDTH) {
-                        const ratio = MAX_WIDTH / finalWidth;
-                        finalWidth = MAX_WIDTH;
-                        finalHeight = finalHeight * ratio;
-                    }
-                    if (finalWidth < 50) finalWidth = 50;
-                    if (finalHeight < 50) finalHeight = 50;
 
+                // Helper to proceed with insertion regardless of dimension success
+                const finalizeInsert = async (w: number, h: number) => {
                     currentZ++;
 
                     const partialNote: Partial<Note> = {
                         type: 'evidence' as any,
                         content: file.name,
                         file_id: fileId, // Should be persistent URL now
-                        x: dropX - (finalWidth / 2) + (index * 20),
-                        y: dropY - (finalHeight / 2) + (index * 20),
+                        x: dropX - (w / 2) + (index * 20),
+                        y: dropY - (h / 2) + (index * 20),
                         zIndex: currentZ,
                         rotation: (Math.random() * 10) - 5,
                         hasPin: false,
-                        width: finalWidth,
-                        height: finalHeight,
+                        width: w,
+                        height: h,
                         scale: 1,
                         board_id: activeBoardId,
                         user_id: userId
@@ -141,7 +131,7 @@ export const useFileDrop = (
                     const { data, error } = await supabase.from('notes').insert([dbPayload]).select().single();
 
                     if (error) {
-                        console.error("Failed to insert dropped file note:", error);
+                        console.error("🚨 Failed to insert dropped file note:", error);
                         if ((error as any).details) console.error("Error Details:", (error as any).details);
                         if ((error as any).hint) console.error("Error Hint:", (error as any).hint);
                         reject(error);
@@ -154,10 +144,38 @@ export const useFileDrop = (
                         reject(new Error("No data returned from insert"));
                     }
                 };
+
+                const img = new Image();
+
+                // Allow CORs if possible, though we might not have control over GAS headers fully yet. 
+                // Setting crossOrigin to anonymous sometimes helps, sometimes breaks if server doesn't support.
+                // We'll trust the fallback.
+                img.crossOrigin = "anonymous";
+
+                img.src = fileId;
+
+                img.onload = () => {
+                    const MAX_WIDTH = 300;
+                    let finalWidth = img.width;
+                    let finalHeight = img.height;
+
+                    // Simple scaling
+                    if (finalWidth > MAX_WIDTH) {
+                        const ratio = MAX_WIDTH / finalWidth;
+                        finalWidth = MAX_WIDTH;
+                        finalHeight = finalHeight * ratio;
+                    }
+                    if (finalWidth < 50) finalWidth = 50;
+                    if (finalHeight < 50) finalHeight = 50;
+
+                    finalizeInsert(finalWidth, finalHeight);
+                };
+
                 img.onerror = (err) => {
-                    console.error("Failed to load image for dimensions:", err);
-                    reject(err);
-                }
+                    console.warn("⚠️ Image dimension load failed (CORS or Network). Proceeding with Default Safety Mode (300x300).", err);
+                    // 🛡️ SAFETY MODE: Use defaults
+                    finalizeInsert(300, 300);
+                };
             });
         });
 
