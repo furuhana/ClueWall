@@ -198,9 +198,13 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
         const dbPayload = mapNoteToDb(partialNote);
 
         try {
+            console.log("Creating Note payload:", dbPayload);
             // Explicitly removing id if it was somehow in partialNote (it isn't, but for safety in future refactors)
             const { data, error } = await supabase.from('notes').insert([dbPayload]).select().single();
-            if (error) throw error;
+            if (error) {
+                console.error("Supabase Insert Error:", error);
+                throw error;
+            }
             if (data) {
                 const newNote = mapDbToNote(data);
                 const nextNotes = [...notes, newNote];
@@ -210,7 +214,7 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
                 // Realtime sub will likely fire too, but duplicate check exists there.
             }
         } catch (e) {
-            console.error("Failed to add note", e);
+            console.error("Failed to add note. Payload was:", dbPayload, e);
         }
     };
 
@@ -250,7 +254,7 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
     const { isMusicPlaying, toggleMusic, audioRef } = useAudio();
 
     // 8. File Drop
-    const { isDraggingFile, handleDragEnter, handleDragLeave, handleDragOver, handleDrop } = useFileDrop(toWorld, setNotes, maxZIndex, setMaxZIndex, saveToCloud);
+    const { isDraggingFile, handleDragEnter, handleDragLeave, handleDragOver, handleDrop } = useFileDrop(toWorld, setNotes, maxZIndex, setMaxZIndex, saveToCloud, activeBoardId);
 
     // 9. Local State & Wrappers
     const boardRef = useRef<HTMLDivElement>(null);

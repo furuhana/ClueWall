@@ -100,8 +100,8 @@ export const useBoardData = (
 
   const handleDeleteNote = useCallback((id: number) => {
     const targetNote = notes.find(n => n.id === id);
-    if (targetNote && targetNote.fileId) {
-      deleteImageFromDrive(targetNote.fileId);
+    if (targetNote && targetNote.file_id) {
+      deleteImageFromDrive(targetNote.file_id);
     }
 
     const nextNotes = notes.filter(n => n.id !== id);

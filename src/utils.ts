@@ -71,20 +71,20 @@ export const mapNoteToDb = (note: Partial<Note>): any => {
     subtitle: note.subtitle,
     board_id: note.board_id,
     file_id: note.file_id, // Direct pass-through
-    has_pin: note.hasPin,
-    pin_x: note.pinX ? Math.round(note.pinX) : null,
-    pin_y: note.pinY ? Math.round(note.pinY) : null,
-    x: Math.round(note.x || 0),
-    y: Math.round(note.y || 0),
-    z_index: note.zIndex,
-    rotation: note.rotation ? Number(note.rotation.toFixed(2)) : 0,
-    width: note.width ? Math.round(note.width) : null,
-    height: note.height ? Math.round(note.height) : null,
-    scale: note.scale || 1,
+    has_pin: !!note.hasPin, // Strict boolean
+    pin_x: note.pinX ? Math.round(Number(note.pinX)) : null,
+    pin_y: note.pinY ? Math.round(Number(note.pinY)) : null,
+    x: Math.round(Number(note.x || 0)),
+    y: Math.round(Number(note.y || 0)),
+    z_index: Number(note.zIndex) || 1,
+    rotation: note.rotation ? Number(Number(note.rotation).toFixed(2)) : 0,
+    width: note.width ? Math.round(Number(note.width)) : null,
+    height: note.height ? Math.round(Number(note.height)) : null,
+    scale: Number(note.scale) || 1, // Strict number
   };
 
   // Only include ID if it's a valid positive number (meaning it exists in DB)
-  if (note.id && note.id > 0) {
+  if (note.id && typeof note.id === 'number' && note.id > 0) {
     dbObj.id = note.id;
   }
 
