@@ -99,8 +99,8 @@ export const mapNoteToDb = (note: Partial<Note>): any => {
 export const mapDbToConnection = (dbRecord: any): Connection => {
   return {
     id: dbRecord.id,
-    sourceId: Number(dbRecord.source_id),
-    targetId: Number(dbRecord.target_id),
+    sourceId: Number(dbRecord.source_id || 0), // Safety fallback
+    targetId: Number(dbRecord.target_id || 0), // Safety fallback
     board_id: dbRecord.board_id,
     color: dbRecord.color
   };
@@ -147,5 +147,14 @@ export const sanitizeNoteForInsert = (note: any) => {
     z_index: Math.round(Number(note.z_index || 0)), // Integer
     rotation: Number(Number(note.rotation || 0).toFixed(2)), // Number
     scale: Number(note.scale || 1) // Number
+  };
+};
+
+export const sanitizeConnectionForInsert = (conn: any) => {
+  return {
+    source_id: Number(conn.source_id || conn.sourceId), // Support both raw DB obj or frontend obj
+    target_id: Number(conn.target_id || conn.targetId),
+    board_id: Number(conn.board_id),
+    color: conn.color || '#666'
   };
 };

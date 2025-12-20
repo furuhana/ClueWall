@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { Note, Connection } from '../types';
 import { deleteImageFromDrive } from '../api';
-import { mapDbToNote, mapNoteToDb, mapDbToConnection, mapConnectionToDb, sanitizeNoteForInsert } from '../utils';
+import { mapDbToNote, mapNoteToDb, mapDbToConnection, mapConnectionToDb, sanitizeNoteForInsert, sanitizeConnectionForInsert } from '../utils';
 
 export const useBoardData = (
   activeBoardId: number | undefined,
@@ -133,16 +133,21 @@ export const useBoardData = (
     if (connsToUpdate.length > 0) {
       await Promise.all(connsToUpdate.map(async (c) => {
         const rawDb = mapConnectionToDb({ ...c, board_id: activeBoardId });
-        if (rawDb.id) delete rawDb.id; // Manual ID removal
-        await supabase.from('connections').update(rawDb).eq('id', c.id);
+        // 🟢 SANITIZE
+        const payload = sanitizeConnectionForInsert(rawDb);
+        // 🛡️ Double Check
+        if ('id' in payload) delete (payload as any).id;
+
+        await supabase.from('connections').update(payload).eq('id', c.id);
       }));
     }
 
     if (connsToInsert.length > 0) {
       const payloads = connsToInsert.map(c => {
         const rawDb = mapConnectionToDb({ ...c, board_id: activeBoardId });
-        if (rawDb.id) delete rawDb.id;
-        return rawDb;
+        const payload = sanitizeConnectionForInsert(rawDb);
+        if ('id' in payload) delete (payload as any).id;
+        return payload;
       });
       await supabase.from('connections').insert(payloads);
     }
