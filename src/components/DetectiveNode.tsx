@@ -1,7 +1,7 @@
 import React, { useRef, useLayoutEffect } from 'react';
 import { Note } from '../types';
 import { NODE_WIDTH } from '../constants';
-import { Paperclip, FileText, MapPin, Trash2, Maximize, RotateCw, MoveHorizontal, MoveVertical } from 'lucide-react';
+import { Paperclip, FileText, MapPin, Trash2, Maximize, RotateCw, MoveHorizontal, MoveVertical, Image as ImageIcon } from 'lucide-react';
 
 interface DetectiveNodeProps {
   note: Note;
@@ -49,8 +49,20 @@ const DetectiveNode: React.FC<DetectiveNodeProps> = ({ note, onMouseDown, onDoub
 
   const renderContent = () => {
     switch (note.type) {
-      case 'photo': return <div style={photoStyle} className="p-3 h-full flex flex-col"><div className="w-full flex-1 mb-2 overflow-hidden flex items-center justify-center min-h-0 rounded">{note.fileId ? <img src={note.fileId} alt="evidence" className="object-cover w-full h-full pointer-events-none" /> : <span className="text-gray-400 text-xs">No Image</span>}</div><p className="font-marker text-center text-gray-800 text-sm leading-tight break-words whitespace-pre-wrap flex-shrink-0">{note.content || "Untitled"}</p></div>;
-      case 'evidence': return <div className="w-full h-full">{note.fileId && <img src={note.fileId} alt={note.content} className="w-full h-full object-contain pointer-events-none block" style={{ minHeight: '100px' }} />}</div>;
+      case 'photo': return <div style={photoStyle} className="p-3 h-full flex flex-col"><div className="w-full flex-1 mb-2 overflow-hidden flex items-center justify-center min-h-0 rounded">{note.file_id ? <img src={note.file_id} alt="evidence" className="object-cover w-full h-full pointer-events-none" /> : <span className="text-gray-400 text-xs">No Image</span>}</div><p className="font-marker text-center text-gray-800 text-sm leading-tight break-words whitespace-pre-wrap flex-shrink-0">{note.content || "Untitled"}</p></div>;
+      case 'evidence': return <div className="w-full h-full bg-[#eee] p-2 shadow-sm transform rotate-1">
+        {note.file_id ? (
+          <img
+            src={note.file_id}
+            alt={note.content}
+            className="w-full h-[85%] object-cover block filter sepia-[.3] contrast-125"
+            draggable={false}
+          />
+        ) : (
+          <div className="w-full h-[85%] bg-gray-300 flex items-center justify-center text-gray-500">
+            <ImageIcon size={32} />
+          </div>
+        )}</div>;
       case 'note': return <div style={noteStyle} className="px-4 py-2 min-h-[160px] h-full"><p className="font-handwriting text-blue-900 text-lg whitespace-pre-wrap pt-1">{note.content}</p></div>;
       case 'dossier': return <div className="relative pt-6 h-full flex flex-col"><div style={{ ...dossierTabStyle, zIndex: 1 }} className="absolute top-0 left-0 w-2/3 h-8 flex items-center"><span className="text-[10px] font-bold text-[#5c3a1e] px-4 uppercase tracking-wider mt-1">{note.title || "Top Secret"}</span></div><div style={{ ...dossierStyle, position: 'relative', zIndex: 2 }} className="p-4 min-h-[200px] flex flex-col h-full flex-1"><div className="border-b-2 border-[#d2b48c] mb-2 pb-1 flex items-center gap-2 flex-shrink-0"><FileText size={16} className="text-[#8b4513]" /><span className="font-bold text-[#8b4513] uppercase text-sm">{note.subtitle || "Case File"}</span></div><p className="font-mono text-xs text-gray-800 flex-1 whitespace-pre-wrap">{note.content}</p><div className="mt-2 self-end flex-shrink-0"><div className="w-20 h-6 border-2 border-red-800 rounded-full flex items-center justify-center opacity-70 transform -rotate-12"><span className="text-red-800 font-bold font-handwriting text-[11px] uppercase">Classified</span></div></div></div></div>;
       case 'scrap': return <div style={scrapStyle} className="p-4 min-h-[50px] h-full"><p className="font-mono text-sm text-gray-600 italic whitespace-pre-wrap">{note.content}</p></div>;

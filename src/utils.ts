@@ -47,7 +47,7 @@ export const mapDbToNote = (dbRecord: any): Note => {
     title: dbRecord.title,
     subtitle: dbRecord.subtitle,
     board_id: dbRecord.board_id,
-    fileId: dbRecord.file_id, // snake_case -> camelCase
+    file_id: dbRecord.file_id || dbRecord.fileId, // Support both during migration, prefer snake
     hasPin: dbRecord.has_pin,
     pinX: dbRecord.pin_x,
     pinY: dbRecord.pin_y,
@@ -70,7 +70,7 @@ export const mapNoteToDb = (note: Partial<Note>): any => {
     title: note.title,
     subtitle: note.subtitle,
     board_id: note.board_id,
-    file_id: note.fileId, // camelCase -> snake_case
+    file_id: note.file_id, // Direct pass-through
     has_pin: note.hasPin,
     pin_x: note.pinX ? Math.round(note.pinX) : null,
     pin_y: note.pinY ? Math.round(note.pinY) : null,

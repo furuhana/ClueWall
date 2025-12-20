@@ -100,7 +100,7 @@ export const useFileDrop = (
                         id: -Date.now(), // Placeholder, will fix in App logic or loop
                         type: 'evidence' as any,
                         content: file.name,
-                        fileId: driveFileId,
+                        file_id: driveFileId,
                         x: dropX - (finalWidth / 2) + (index * 20),
                         y: dropY - (finalHeight / 2) + (index * 20),
                         zIndex: currentZ,

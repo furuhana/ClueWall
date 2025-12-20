@@ -7,7 +7,7 @@ export interface Note {
   title?: string; // For Dossier (e.g., "Top Secret")
   subtitle?: string; // For Dossier (e.g., "Case File")
   board_id?: number; // Optional reference to parent board
-  fileId?: string; // URL for image or ID
+  file_id?: string; // URL for image or ID (snake_case per DB)
   hasPin?: boolean; // Whether the note has a pin attached
   pinX?: number; // Relative X position of the pin (from left)
   pinY?: number; // Relative Y position of the pin (from top)

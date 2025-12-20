@@ -189,7 +189,7 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
             scale: 1,
             zIndex: maxZIndex + 1,
             rotation: (Math.random() * 10) - 5,
-            fileId: type === 'photo' ? '/photo_1.png' : undefined,
+            file_id: type === 'photo' ? '/photo_1.png' : undefined,
             hasPin: false,
             board_id: Number(boardIdToUse), // Ensure number
             user_id: session.user.id // RLS Compliance
