@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import { uploadToGAS } from '../api';
 import { Note } from '../types';
 import { supabase } from '../supabaseClient';
-import { mapNoteToDb, mapDbToNote } from '../utils';
+import { mapNoteToDb, mapDbToNote, sanitizeNoteForInsert } from '../utils';
 
 export const useFileDrop = (
     toWorld: (x: number, y: number) => { x: number, y: number },
@@ -123,11 +123,11 @@ export const useFileDrop = (
                         user_id: userId
                     } as any;
 
-                    const dbPayload = mapNoteToDb(partialNote);
-                    console.log("Dropping File Payload:", dbPayload);
+                    const rawDbPayload = mapNoteToDb(partialNote);
 
-                    // 🟢 ULTRA-STRICT: Remove ID absolutely
-                    delete dbPayload.id;
+                    // 🟢 ULTRA-STRICT: Sanitize for Insert
+                    const dbPayload = sanitizeNoteForInsert(rawDbPayload);
+                    console.log("Dropping File Payload (Sanitized):", JSON.stringify(dbPayload));
 
                     // Insert into DB
                     const { data, error } = await supabase.from('notes').insert([dbPayload]).select().single();

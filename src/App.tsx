@@ -22,7 +22,7 @@ import { useStealthMode } from './hooks/useStealthMode';
 import { useAudio } from './hooks/useAudio';
 import { useFileDrop } from './hooks/useFileDrop';
 import { useBoards } from './hooks/useBoards';
-import { mapNoteToDb, mapDbToNote } from './utils';
+import { mapNoteToDb, mapDbToNote, mapDbToConnection, sanitizeNoteForInsert } from './utils';
 
 const GRID_URL = "data:image/svg+xml,%3Csvg width='30' height='30' viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='30' height='30' fill='none' stroke='%23CAB9A1' stroke-width='0.7' opacity='0.3'/%3E%3C/svg%3E";
 
@@ -195,13 +195,13 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
             user_id: session.user.id // RLS Compliance
         };
 
-        const dbPayload = mapNoteToDb(partialNote);
+        const rawDbPayload = mapNoteToDb(partialNote);
 
-        // 🟢 ULTRA-STRICT: Remove ID absolutely to prevent auto-increment errors
-        delete dbPayload.id;
+        // 🟢 ULTRA-STRICT: Use Whitelist Sanitize
+        const dbPayload = sanitizeNoteForInsert(rawDbPayload);
 
         try {
-            console.log("Creating Note payload (Strict):", dbPayload);
+            console.log("Creating Note payload (Sanitized):", JSON.stringify(dbPayload));
             const { data, error } = await supabase.from('notes').insert([dbPayload]).select().single();
             if (error) {
                 console.error("Supabase Insert Error:", error);
