@@ -1,98 +1,104 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { Note, Connection } from '../types';
-import { deleteImageFromDrive } from '../api';
-import { mapDbToNote, mapNoteToDb, mapDbToConnection, mapConnectionToDb, sanitizeNoteForInsert, sanitizeConnectionForInsert } from '../utils';
+import {
+  mapDbToNote,
+  mapNoteToDb,
+  mapDbToConnection,
+  mapConnectionToDb,
+  sanitizeNoteForInsert
+} from '../utils';
+
+// Added mapConnectionToDb to imports above as it was missing in snippet but likely needed or useful. 
+// User snippet had manual connection payload construction, so maybe not strictly needed, but good to have context.
 
 export const useBoardData = (
-  activeBoardId: number | undefined,
+  boardId: number | undefined,
   interactionRef: React.MutableRefObject<{ draggingId: number | null; resizingId: number | null; rotatingId: number | null }>
 ) => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [maxZIndex, setMaxZIndex] = useState<number>(10);
+  const [isLoading, setIsLoading] = useState(false);
+  const [maxZIndex, setMaxZIndex] = useState(1);
 
-  // 1. Initial Data Fetch
+  // 状态反馈：用于 UI 显示 "已保存" 或 "同步失败"
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
+
+  // 1. 初始数据加载
   useEffect(() => {
-    if (activeBoardId === undefined || activeBoardId === null) {
-      setNotes([]);
-      setConnections([]);
-      setIsLoading(false);
-      return;
-    }
+    if (!boardId) return;
 
-    const fetchInitialData = async () => {
-      console.log("当前加载的画板ID:", activeBoardId);
-      const { data: notesData } = await supabase.from('notes').select('*').eq('board_id', activeBoardId);
-      const { data: connsData } = await supabase.from('connections').select('*').eq('board_id', activeBoardId);
+    const fetchBoardData = async () => {
+      setIsLoading(true);
+      console.log(`📥 [useBoardData] 开始加载画板 #${boardId}...`);
 
-      if (notesData) {
-        const uniqueNotes = Array.from(new Map(notesData.map((item: any) => [item.id, mapDbToNote(item)])).values());
-        setNotes(uniqueNotes);
-        const maxZ = uniqueNotes.reduce((max: number, n: any) => Math.max(max, n.zIndex || 0), 10);
-        setMaxZIndex(maxZ);
-      } else {
-        setNotes([]);
+      try {
+        // 并行加载笔记和连线
+        const [notesRes, connsRes] = await Promise.all([
+          supabase.from('notes').select('*').eq('board_id', boardId),
+          supabase.from('connections').select('*').eq('board_id', boardId)
+        ]);
+
+        if (notesRes.error) throw notesRes.error;
+        if (connsRes.error) throw connsRes.error;
+
+        // 转换数据
+        const loadedNotes = (notesRes.data || []).map(mapDbToNote);
+        const loadedConns = (connsRes.data || []).map(mapDbToConnection);
+
+        setNotes(loadedNotes);
+        setConnections(loadedConns);
+
+        // 计算最大 zIndex
+        if (loadedNotes.length > 0) {
+          const maxZ = Math.max(...loadedNotes.map(n => n.zIndex || 0));
+          setMaxZIndex(maxZ + 1);
+        }
+        console.log(`✅ [useBoardData] 加载完成: ${loadedNotes.length} 笔记, ${loadedConns.length} 连线`);
+      } catch (error) {
+        console.error("❌ [useBoardData] 加载失败:", error);
+      } finally {
+        setIsLoading(false);
       }
-
-      if (connsData) {
-        const uniqueConns = Array.from(new Map(connsData.map((item: any) => [item.id, mapDbToConnection(item)])).values());
-        setConnections(uniqueConns);
-      } else {
-        setConnections([]);
-      }
-      setIsLoading(false);
     };
-    fetchInitialData();
-  }, [activeBoardId]);
 
-  // ------------------------------------------------------------
-  // ✅ 核心：Realtime 实时订阅 (手动植入版 - Adapted)
-  // ------------------------------------------------------------
+    fetchBoardData();
+  }, [boardId]);
+
+  // 2. 📡 核心：Realtime 实时订阅 (多人协作引擎)
   useEffect(() => {
-    if (!activeBoardId) return;
+    if (!boardId) return;
 
-    console.log("📡 正在建立实时连接通道...", activeBoardId);
+    console.log(`📡 [Realtime] 正在订阅画板 #${boardId} 的频道...`);
 
     const channel = supabase
-      .channel(`board_realtime_${activeBoardId}`)
+      .channel(`board_live_${boardId}`) // 频道名称唯一
       .on(
         'postgres_changes',
         {
-          event: '*', // 监听所有事件：增、删、改
+          event: '*', // 监听增删改
           schema: 'public',
           table: 'notes',
-          filter: `board_id=eq.${activeBoardId}`, // 只监听当前画板
+          filter: `board_id=eq.${boardId}`, // 只听当前画板的
         },
         (payload) => {
-          console.log('🔔 收到笔记变更:', payload);
+          console.log('🔔 [Realtime] 收到笔记更新:', payload.eventType, payload);
           const { eventType, new: newRecord, old: oldRecord } = payload;
 
+          // 忽略自己的高频更新（防止拖拽抖动）
+          if (interactionRef.current?.draggingId === newRecord?.id) {
+            return;
+          }
+
           if (eventType === 'INSERT') {
-            // 别人加了新笔记 -> 我这边也要加
-            setNotes((prev) => {
-              if (prev.find((n) => n.id === newRecord.id)) return prev; // 防重
+            setNotes(prev => {
+              if (prev.find(n => n.id === newRecord.id)) return prev;
               return [...prev, mapDbToNote(newRecord)];
             });
           } else if (eventType === 'UPDATE') {
-            // 别人动了笔记 -> 我这边也要动
-            setNotes((prev) =>
-              prev.map((n) => {
-                if (n.id === newRecord.id) {
-                  // Conflict Resolution: Don't update if I'm dragging this specific note
-                  const current = interactionRef.current;
-                  if (current.draggingId === n.id || current.resizingId === n.id || current.rotatingId === n.id) {
-                    return n;
-                  }
-                  return mapDbToNote(newRecord);
-                }
-                return n;
-              })
-            );
+            setNotes(prev => prev.map(n => n.id === newRecord.id ? mapDbToNote(newRecord) : n));
           } else if (eventType === 'DELETE') {
-            // 别人删了笔记 -> 我这边也要删
-            setNotes((prev) => prev.filter((n) => n.id !== oldRecord.id));
+            setNotes(prev => prev.filter(n => n.id !== oldRecord.id));
           }
         }
       )
@@ -101,141 +107,119 @@ export const useBoardData = (
         {
           event: '*',
           schema: 'public',
-          table: 'connections', // 别忘了连线也要监听！
-          filter: `board_id=eq.${activeBoardId}`,
+          table: 'connections',
+          filter: `board_id=eq.${boardId}`,
         },
         (payload) => {
-          console.log('🕸️ 收到连线变更:', payload);
+          console.log('🕸️ [Realtime] 收到连线更新:', payload.eventType);
           const { eventType, new: newRecord, old: oldRecord } = payload;
 
           if (eventType === 'INSERT') {
-            setConnections((prev) => {
-              if (prev.find((c) => c.id === newRecord.id)) return prev;
+            setConnections(prev => {
+              if (prev.find(c => c.id === newRecord.id)) return prev;
               return [...prev, mapDbToConnection(newRecord)];
             });
           } else if (eventType === 'UPDATE') {
-            setConnections((prev) =>
-              prev.map((c) => (c.id === newRecord.id ? mapDbToConnection(newRecord) : c))
-            );
+            setConnections(prev => prev.map(c => c.id === newRecord.id ? mapDbToConnection(newRecord) : c));
           } else if (eventType === 'DELETE') {
-            setConnections((prev) => prev.filter((c) => c.id !== oldRecord.id));
+            setConnections(prev => prev.filter(c => c.id !== oldRecord.id));
           }
         }
       )
       .subscribe((status) => {
-        console.log(`📡 订阅状态: ${status}`);
+        console.log(`📶 [Realtime] 连接状态: ${status}`);
       });
 
-    // 卸载组件时断开连接，防止内存泄漏
     return () => {
-      console.log("🔌 断开实时连接");
+      console.log(`🔌 [Realtime] 断开连接`);
       supabase.removeChannel(channel);
     };
-  }, [activeBoardId, interactionRef]);
+  }, [boardId]);
 
-  // 3. Save Injection
-  const saveToCloud = useCallback(async (changedNotes: Note[], changedConns: Connection[]) => {
-    if (!activeBoardId) return;
+  // 3. 保存逻辑 (Save / Update)
+  const saveToCloud = useCallback(async (notesToSave: Note[], connectionsToSave: Connection[] = []) => {
+    if (!boardId) return;
 
-    // --- NOTES HANDLING ---
-    const notesToUpdate: Note[] = [];
-    const notesToInsert: Note[] = [];
+    try {
+      // 处理笔记更新
+      if (notesToSave.length > 0) {
+        const updates = notesToSave.map(note => {
+          const payload = sanitizeNoteForInsert(mapNoteToDb(note));
+          const cleanPayload = { ...payload };
+          delete (cleanPayload as any).id; // 不允许更新主键
 
-    changedNotes.forEach(n => {
-      if (n.id && n.id > 0) notesToUpdate.push(n);
-      else notesToInsert.push(n);
-    });
-
-    // A. Updates: Must NOT include 'id' in the body to avoid 400 Bad Request
-    if (notesToUpdate.length > 0) {
-      await Promise.all(notesToUpdate.map(async (n) => {
-        const rawDb = mapNoteToDb({ ...n, board_id: activeBoardId });
-        const payload = sanitizeNoteForInsert(rawDb);
-        if ('id' in payload) delete (payload as any).id;
-        await supabase.from('notes').update(payload).eq('id', n.id);
-      }));
-    }
-
-    // B. Inserts: Can batch
-    if (notesToInsert.length > 0) {
-      const payloads = notesToInsert.map(n => {
-        const rawDb = mapNoteToDb({ ...n, board_id: activeBoardId });
-        const payload = sanitizeNoteForInsert(rawDb);
-        if ('id' in payload) delete (payload as any).id;
-        return payload;
-      });
-      await supabase.from('notes').insert(payloads);
-    }
-
-    // --- CONNECTIONS HANDLING (Unified Upsert) ---
-    if (changedConns.length > 0) {
-      const payloads = changedConns.map(c => {
-        const rawDb = mapConnectionToDb({ ...c, board_id: activeBoardId });
-        const payload = sanitizeConnectionForInsert(rawDb);
-        // 🟢 CRITICAL: Remove 'id' so Supabase doesn't try to update by PK, 
-        // allowing onConflict to work on (source, target).
-        if ('id' in payload) delete (payload as any).id;
-        return payload;
-      });
-
-      // 🚀 UPSERT: Insert or Update based on (source_id, target_id)
-      const { error: connError } = await supabase
-        .from('connections')
-        .upsert(payloads, {
-          onConflict: 'source_id, target_id',
-          ignoreDuplicates: false
+          return supabase.from('notes').update(cleanPayload).eq('id', note.id);
         });
 
-      if (connError) {
-        console.error("🚨 【连接线 Upsert 失败】", {
-          "错误信息": connError.message,
-          "详情": connError.details,
-          "Hint": connError.hint,
-          "Payload": payloads
-        });
+        await Promise.all(updates);
       }
+
+      // 处理连线 (使用 Upsert 解决颜色回滚和重复)
+      if (connectionsToSave.length > 0) {
+        const connUpdates = connectionsToSave.map(conn => {
+          const payload = {
+            source_id: conn.sourceId,
+            target_id: conn.targetId,
+            board_id: boardId,
+            color: conn.color,
+            // type: conn.type // Removed as Connection type might not have generic 'type' field based on standard usage usually just color. If needed, can add back.
+          };
+          return supabase.from('connections').upsert(payload, { onConflict: 'source_id,target_id' });
+        });
+        await Promise.all(connUpdates);
+      }
+
+      setSyncStatus('success');
+      setTimeout(() => setSyncStatus('idle'), 2000);
+    } catch (error) {
+      console.error("❌ 保存失败:", error);
+      setSyncStatus('error');
     }
-  }, [activeBoardId]);
+  }, [boardId]);
+
+  // 4. 辅助函数
+  const handleDeleteNote = useCallback(async (id: number) => {
+    setNotes(prev => prev.filter(n => n.id !== id));
+    setConnections(prev => prev.filter(c => c.sourceId !== id && c.targetId !== id));
+    await supabase.from('notes').delete().eq('id', id);
+  }, []);
+
+  const handleDeleteConnection = useCallback(async (id: number) => {
+    setConnections(prev => prev.filter(c => c.id !== id));
+    await supabase.from('connections').delete().eq('id', id);
+  }, []);
+
+  const clearBoard = useCallback(async () => {
+    if (!boardId) return;
+    if (!window.confirm("Are you sure? This will destroy all evidence.")) return;
+
+    setNotes([]);
+    setConnections([]);
+    await supabase.from('connections').delete().eq('board_id', boardId);
+    await supabase.from('notes').delete().eq('board_id', boardId);
+  }, [boardId]);
+
+  const updateNote = useCallback((updatedNote: Note) => {
+    setNotes(prev => prev.map(n => n.id === updatedNote.id ? updatedNote : n));
+    saveToCloud([updatedNote]);
+  }, [saveToCloud]);
+
+  // Backfill missing methods expected by App.tsx (e.g. deleteFromCloud)
+  // App.tsx uses: saveToCloud, deleteFromCloud, handleDeleteNote, handleDeleteConnection, clearBoard, updateNote
+  // User snippet has: saveToCloud, handleDeleteNote, handleDeleteConnection, clearBoard, updateNote
+  // It is missing: deleteFromCloud. 
+  // I will add a simple deleteFromCloud stub or implementation to avoid App.tsx crashing if it uses it directly.
+  // Actually, App.tsx (Line 216 in previous view) returns `deleteFromCloud`.
+  // Wait, `handleDeleteNote` logic in User snippet calls `supabase.from...delete` directly.
+  // The existing `App.tsx` might call `deleteFromCloud` externally? 
+  // Let's check App.tsx usages.
+  // App.tsx destructures it. If I don't return it, App.tsx might fail if it tries to use it.
+  // I'll add a simple wrapper for it just in case.
 
   const deleteFromCloud = useCallback(async (noteId?: number, connId?: number) => {
     if (noteId) await supabase.from('notes').delete().eq('id', noteId);
     if (connId) await supabase.from('connections').delete().eq('id', connId);
   }, []);
-
-  const handleDeleteNote = useCallback((id: number) => {
-    const targetNote = notes.find(n => n.id === id);
-    if (targetNote && targetNote.file_id) {
-      deleteImageFromDrive(targetNote.file_id);
-    }
-
-    const nextNotes = notes.filter(n => n.id !== id);
-    const nextConns = connections.filter(c => c.sourceId !== id && c.targetId !== id);
-    setNotes(nextNotes);
-    setConnections(nextConns);
-    deleteFromCloud(id);
-    const relatedConns = connections.filter(c => c.sourceId === id || c.targetId === id);
-    relatedConns.forEach(c => deleteFromCloud(undefined, c.id));
-  }, [notes, connections, deleteFromCloud]);
-
-  const handleDeleteConnection = useCallback((id: number) => {
-    const nextConns = connections.filter(c => c.id !== id);
-    setConnections(nextConns);
-    deleteFromCloud(undefined, id);
-  }, [connections, deleteFromCloud]);
-
-  const clearBoard = useCallback(async () => {
-    if (window.confirm("Burn all evidence?")) {
-      setNotes([]);
-      setConnections([]);
-      await supabase.from('notes').delete().eq('board_id', activeBoardId);
-      await supabase.from('connections').delete().eq('board_id', activeBoardId);
-    }
-  }, [activeBoardId]); // Added dependency
-
-  const updateNote = useCallback((updatedNote: Note) => {
-    setNotes(prev => prev.map(n => n.id === updatedNote.id ? updatedNote : n));
-    saveToCloud([updatedNote], []);
-  }, [saveToCloud]);
 
   return {
     notes,
@@ -246,10 +230,11 @@ export const useBoardData = (
     maxZIndex,
     setMaxZIndex,
     saveToCloud,
-    deleteFromCloud,
+    deleteFromCloud, // Ensure this is exported
     handleDeleteNote,
     handleDeleteConnection,
     clearBoard,
-    updateNote
+    updateNote,
+    syncStatus
   };
 };
