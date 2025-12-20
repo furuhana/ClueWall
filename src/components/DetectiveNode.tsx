@@ -50,16 +50,17 @@ const DetectiveNode: React.FC<DetectiveNodeProps> = ({ note, onMouseDown, onDoub
   const renderContent = () => {
     switch (note.type) {
       case 'photo': return <div style={photoStyle} className="p-3 h-full flex flex-col"><div className="w-full flex-1 mb-2 overflow-hidden flex items-center justify-center min-h-0 rounded">{note.file_id ? <img src={note.file_id} alt="evidence" className="object-cover w-full h-full pointer-events-none" /> : <span className="text-gray-400 text-xs">No Image</span>}</div><p className="font-marker text-center text-gray-800 text-sm leading-tight break-words whitespace-pre-wrap flex-shrink-0">{note.content || "Untitled"}</p></div>;
-      case 'evidence': return <div className="w-full h-full bg-[#eee] p-2 shadow-sm transform rotate-1">
+      case 'evidence': return <div className="w-full h-full bg-transparent flex items-center justify-center">
         {note.file_id ? (
           <img
             src={note.file_id}
             alt={note.content}
-            className="w-full h-[85%] object-cover block filter sepia-[.3] contrast-125"
+            className="w-full h-full object-contain pointer-events-none"
+            style={{ filter: 'drop-shadow(0 8px 8px rgba(0,0,0,0.3))' }} // 🌟 Support transparent PNG shadows
             draggable={false}
           />
         ) : (
-          <div className="w-full h-[85%] bg-gray-300 flex items-center justify-center text-gray-500">
+          <div className="w-full h-full bg-gray-200 border-2 border-dashed border-gray-400 rounded flex items-center justify-center text-gray-400">
             <ImageIcon size={32} />
           </div>
         )}</div>;
