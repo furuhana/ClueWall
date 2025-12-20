@@ -126,6 +126,9 @@ export const useFileDrop = (
                     const dbPayload = mapNoteToDb(partialNote);
                     console.log("Dropping File Payload:", dbPayload);
 
+                    // 🟢 ULTRA-STRICT: Remove ID absolutely
+                    delete dbPayload.id;
+
                     // Insert into DB
                     const { data, error } = await supabase.from('notes').insert([dbPayload]).select().single();
 

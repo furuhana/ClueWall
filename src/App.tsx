@@ -197,9 +197,11 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
 
         const dbPayload = mapNoteToDb(partialNote);
 
+        // 🟢 ULTRA-STRICT: Remove ID absolutely to prevent auto-increment errors
+        delete dbPayload.id;
+
         try {
-            console.log("Creating Note payload:", dbPayload);
-            // Explicitly removing id if it was somehow in partialNote (it isn't, but for safety in future refactors)
+            console.log("Creating Note payload (Strict):", dbPayload);
             const { data, error } = await supabase.from('notes').insert([dbPayload]).select().single();
             if (error) {
                 console.error("Supabase Insert Error:", error);
