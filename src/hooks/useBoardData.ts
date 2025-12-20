@@ -85,13 +85,66 @@ export const useBoardData = (
   // 3. Save Injection
   const saveToCloud = useCallback(async (changedNotes: Note[], changedConns: Connection[]) => {
     if (!activeBoardId) return;
-    if (changedNotes.length > 0) {
-      const notesToSave = changedNotes.map(n => mapNoteToDb({ ...n, board_id: activeBoardId }));
-      await supabase.from('notes').upsert(notesToSave);
+
+    // --- NOTES HANDLING ---
+    const notesToUpdate: Note[] = [];
+    const notesToInsert: Note[] = [];
+
+    changedNotes.forEach(n => {
+      if (n.id && n.id > 0) notesToUpdate.push(n);
+      else notesToInsert.push(n);
+    });
+
+    // A. Updates: Must NOT include 'id' in the body to avoid 400 Bad Request
+    if (notesToUpdate.length > 0) {
+      await Promise.all(notesToUpdate.map(async (n) => {
+        const rawDb = mapNoteToDb({ ...n, board_id: activeBoardId });
+
+        // 🟢 SANITIZE: Removes ID and enforces types
+        const payload = sanitizeNoteForInsert(rawDb);
+
+        // 🛡️ Double Check: Ensure ID is gone
+        if ('id' in payload) delete (payload as any).id;
+
+        await supabase.from('notes').update(payload).eq('id', n.id);
+      }));
     }
-    if (changedConns.length > 0) {
-      const connsToSave = changedConns.map(c => mapConnectionToDb({ ...c, board_id: activeBoardId }));
-      await supabase.from('connections').upsert(connsToSave);
+
+    // B. Inserts: Can batch
+    if (notesToInsert.length > 0) {
+      const payloads = notesToInsert.map(n => {
+        const rawDb = mapNoteToDb({ ...n, board_id: activeBoardId });
+        const payload = sanitizeNoteForInsert(rawDb);
+        if ('id' in payload) delete (payload as any).id;
+        return payload;
+      });
+      await supabase.from('notes').insert(payloads);
+    }
+
+    // --- CONNECTIONS HANDLING ---
+    const connsToUpdate: Connection[] = [];
+    const connsToInsert: Connection[] = [];
+
+    changedConns.forEach(c => {
+      if (c.id && c.id > 0) connsToUpdate.push(c);
+      else connsToInsert.push(c);
+    });
+
+    if (connsToUpdate.length > 0) {
+      await Promise.all(connsToUpdate.map(async (c) => {
+        const rawDb = mapConnectionToDb({ ...c, board_id: activeBoardId });
+        if (rawDb.id) delete rawDb.id; // Manual ID removal
+        await supabase.from('connections').update(rawDb).eq('id', c.id);
+      }));
+    }
+
+    if (connsToInsert.length > 0) {
+      const payloads = connsToInsert.map(c => {
+        const rawDb = mapConnectionToDb({ ...c, board_id: activeBoardId });
+        if (rawDb.id) delete rawDb.id;
+        return rawDb;
+      });
+      await supabase.from('connections').insert(payloads);
     }
   }, [activeBoardId]);
 
