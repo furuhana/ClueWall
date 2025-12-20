@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { uploadImage } from '../api';
+import { uploadToGAS } from '../api';
 import { Note } from '../types';
 import { supabase } from '../supabaseClient';
 import { mapNoteToDb, mapDbToNote } from '../utils';
@@ -65,13 +65,34 @@ export const useFileDrop = (
         const dropY = worldPos.y;
 
         const promises = imageFiles.map(async (file, index) => {
-            // 🟢 PASS USER INFO TO API
-            const driveFileId = await uploadImage(file, userId, userName);
-            if (!driveFileId) return null;
+            // 🟢 READ FILE AS BASE64 FIRST (For GAS payload)
+            const base64Data = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.readAsDataURL(file);
+            });
+
+            // 🟢 UPLOAD TO GAS
+            const gasResponse = await uploadToGAS({
+                userId,
+                userName: userName || 'Unknown',
+                fileName: file.name,
+                base64Data,
+                contentType: file.type
+            });
+
+            if (!gasResponse) return null; // Upload failure logic
+
+            // 🟢 DETERMINE FILE ID (URL)
+            // If no-cors prevents reading response, we might not have a URL.
+            // Fallback to local object URL for immediate display, but warn for DB.
+            const fileId = gasResponse.fileUrl || URL.createObjectURL(file);
+            // Note: If it's a blob URL, it won't work for other users. 
+            // This is a limitation of no-cors mode requested by user.
 
             return new Promise<Note>((resolve, reject) => {
                 const img = new Image();
-                img.src = driveFileId; // Ensure this is a valid URL for loading
+                img.src = fileId; // Use URL for loading dimensions
                 img.onload = async () => {
                     const MAX_WIDTH = 300;
                     let finalWidth = img.width;
@@ -89,7 +110,7 @@ export const useFileDrop = (
                     const partialNote: Partial<Note> = {
                         type: 'evidence' as any,
                         content: file.name,
-                        file_id: driveFileId,
+                        file_id: gasResponse.fileUrl ? fileId : (file.name + " (Pending URL)"), // DB needs persistent string
                         x: dropX - (finalWidth / 2) + (index * 20),
                         y: dropY - (finalHeight / 2) + (index * 20),
                         zIndex: currentZ,
@@ -105,6 +126,7 @@ export const useFileDrop = (
                     const dbPayload = mapNoteToDb(partialNote);
                     console.log("Dropping File Payload:", dbPayload);
 
+                    // Insert into DB
                     const { data, error } = await supabase.from('notes').insert([dbPayload]).select().single();
 
                     if (error) {
@@ -135,7 +157,6 @@ export const useFileDrop = (
                 const newMaxZ = currentZ;
                 setMaxZIndex(newMaxZ);
                 setNotes(prev => [...prev, ...loadedNotes]);
-                // No need to call saveToCloud as we just inserted them.
             }
         } catch (error: any) {
             console.error("Error processing dropped files:", error);

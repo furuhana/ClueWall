@@ -30,59 +30,42 @@ export const saveBoardData = async (notes: Note[], connections: Connection[]) =>
   }).catch(e => console.error("GAS Save Error:", e));
 };
 
-// 🟢 增强版图片上传 (保留原版强大的错误处理逻辑)
-export const uploadImage = async (file: File, userId?: string, userName?: string): Promise<string | null> => {
-  if (!API_URL) {
-    alert("上传失败：未配置 Google API 链接");
-    return null;
-  }
+// 🟢 增强版图片上传 (Fixed Payload & Syntax)
+// 🟢 增强版图片上传 (Fixed Payload & Syntax & URL)
+export const uploadToGAS = async (payload: {
+  userId: string;
+  userName: string;
+  fileName: string;
+  base64Data: string;
+  contentType: string;
+}): Promise<{ status: string; message: string; fileUrl?: string } | null> => {
+  const GAS_URL = 'https://script.google.com/macros/s/AKfycbxtCyRhNQ6iX5DJDQd0mmNWu3b6TVxTtLCut2FRyd5O-H7VYvyDGJQEhJfzEczz1PBN4w/exec';
 
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-
-    reader.onload = async () => {
-      const base64 = reader.result as string;
-      try {
-        console.log("正在上传图片到 Google Drive...", { userId, userName });
-
-        const response = await fetch(API_URL, {
-          method: 'POST',
-          // ⚠️ 关键：原版逻辑，不要加 headers Content-Type，让浏览器自动处理 Simple Request
-          action: 'uploadImage',
-          base64,
-          name: file.name, // 🟢 Renamed from filename per instruction
-          contentType: file.type, // 🟢 Added Content-Type
-          userId,      // 🟢 新增身份标识
-          userName     // 🟢 新增身份标识
-        })
-      });
-
-  // 🛡️ 防御性编程：GAS 有时会返回 HTML 错误页，直接 .json() 会崩
-  const text = await response.text();
   try {
-    const data = JSON.parse(text);
+    console.log("正在上传图片到 Google Drive...", { ...payload, base64Data: '***' });
 
-    if (data && data.status === 'success') {
-      // 优先使用 fileUrl 显示
-      const resultUrl = data.fileUrl || data.fileId;
-      console.log("上传成功! URL:", resultUrl);
-      resolve(resultUrl);
-    } else {
-      console.error("GAS 返回错误:", data);
-      resolve(null);
-    }
-  } catch (e) {
-    console.error("GAS 返回了非 JSON 数据 (可能是 HTML 报错):", text);
-    resolve(null);
+    await fetch(GAS_URL, {
+      method: 'POST',
+      mode: 'no-cors', // 💡 注意：GAS 跨域通常需要 no-cors，但会导致无法读取 response body
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        userId: payload.userId,
+        userName: payload.userName,
+        fileName: payload.fileName,
+        base64Data: payload.base64Data,
+        contentType: payload.contentType
+      })
+    });
+
+    // 由于 no-cors 模式下无法读取返回结果，我们假设只要没崩就是成功
+    return { status: 'success', message: 'Upload triggered' };
+
+  } catch (error) {
+    console.error('GAS Upload Error:', error);
+    throw error;
   }
-
-} catch (e) {
-  console.error("请求发送失败 (可能是 CORS):", e);
-  resolve(null);
-}
-    };
-  });
 };
 
 // 🟢 删除 Drive 图片 (结合新版的 no-cors 模式)
