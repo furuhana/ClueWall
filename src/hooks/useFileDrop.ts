@@ -170,9 +170,10 @@ export const useFileDrop = (
                 setNotes(prev => [...prev, ...loadedNotes]);
             }
         } catch (error: any) {
-            console.error("Error processing dropped files:", error);
+            console.error("🚨 Error processing dropped files (Catch Block):", error);
             if (error.details) console.error("Deep Details:", error.details);
             if (error.hint) console.error("Deep Hint:", error.hint);
+            if (error.message) console.error("Error Message:", error.message);
         }
     }, [maxZIndex, toWorld, setNotes, setMaxZIndex, activeBoardId]); // Removed saveToCloud dependency as logic changed
 

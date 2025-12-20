@@ -209,13 +209,12 @@ const ClueWallApp: React.FC<ClueWallAppProps> = ({ session, userRole, onSignOut 
             const { data, error } = await supabase.from('notes').insert([dbPayload]).select().single();
             if (error) {
                 console.error("🚨 【数据库拒收 - 深度诊断报告】", {
-                    "错误信息 (Message)": error.message,
-                    "具体细节 (Details)": error.details,
-                    "修正建议 (Hint)": error.hint,
-                    "报错代码 (Code)": error.code,
-                    "本次发送的数据包 (Payload)": dbPayload
+                    "错误信息": error.message,
+                    "具体细节": error.details,
+                    "修正建议": error.hint,
+                    "报错代码": error.code,
+                    "Payload清单": dbPayload
                 });
-                // 同时也保留原始错误抛出
                 throw error;
             }
             if (data) {
